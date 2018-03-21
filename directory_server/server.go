@@ -2,15 +2,16 @@
 package main
 
 import (
-	"net"
-	"sync"
-	"net/rpc"
-	"fmt"
-	"time"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"encoding/gob"
 	"errors"
+	"fmt"
 	"math/rand"
+	"net"
+	"net/rpc"
+	"sync"
+	"time"
 )
 
 type UnregisteredKeyError error
@@ -19,7 +20,7 @@ type NotEnoughORsError error
 type DServer int
 
 type OnionRouter struct {
-	Address string
+	Address             string
 	MostRecentHeartBeat int64
 }
 
@@ -36,19 +37,20 @@ type ActiveORs struct {
 var (
 	// Directory Server Errors
 	unregisteredKeyError UnregisteredKeyError = errors.New("Given Key is not registered")
-	notEnoughORsError NotEnoughORsError = errors.New("Not enough ORs")
+	notEnoughORsError    NotEnoughORsError    = errors.New("Not enough ORs")
 
 	// Server configurations
-	serverPort string = ":12345"
-	heartBeatInterval int64 = 2 // seconds
-	numHops int = 3 // how many ORs will be in the circuit
+	serverPort        string = ":12345"
+	heartBeatInterval int64  = 2 // seconds
+	numHops           int    = 3 // how many ORs will be in the circuit
 
 	// All the active onion routers in the system mapped by pubKey
 	activeORs ActiveORs = ActiveORs{all: make(map[string]*OnionRouter)}
-
 )
 
 func main() {
+	gob.Register(&elliptic.CurveParams{})
+
 	dserver := new(DServer)
 	server := rpc.NewServer()
 	server.Register(dserver)
@@ -74,9 +76,9 @@ func (s *DServer) RegisterNode(or OnionRouterInfo, ack *bool) error {
 		time.Now().Unix(),
 	}
 
-        go monitor(pKey)
-	fmt.Println("Got register from %s\n", or.Address)
-	fmt.Println(activeORs.all)
+	go monitor(pKey)
+	fmt.Printf("Got register from %s\n", or.Address)
+	// fmt.Println(activeORs.all)
 
 	return nil
 }
@@ -95,7 +97,7 @@ func (s *DServer) GetNodes(key ecdsa.PublicKey, addrSet *[]string) error {
 		return unregisteredKeyError
 	}
 
-	orAddresses := make([]string, len(activeORs.all) -1)
+	orAddresses := make([]string, len(activeORs.all)-1)
 
 	for p, orAddress := range activeORs.all {
 		if pKey == p {
@@ -115,12 +117,12 @@ func (s *DServer) GetNodes(key ecdsa.PublicKey, addrSet *[]string) error {
 		j++
 	}
 
-        *addrSet = orCircuitIPs[:numHops]
+	*addrSet = orCircuitIPs[:numHops]
 
 	return nil
 }
 
-func (s *DServer) HeartBeat(key ecdsa.PublicKey, ack *bool) error {
+func (s *DServer) KeepNodeOnline(key ecdsa.PublicKey, ack *bool) error {
 	activeORs.Lock()
 	defer activeORs.Unlock()
 
@@ -149,14 +151,14 @@ func pubKeyToString(key ecdsa.PublicKey) string {
 func monitor(pKey string) {
 	for {
 		activeORs.Lock()
-		if time.Now().Unix() - activeORs.all[pKey].MostRecentHeartBeat > heartBeatInterval {
-			fmt.Println("%s timed out", activeORs.all[pKey].Address)
+		if time.Now().Unix()-activeORs.all[pKey].MostRecentHeartBeat > heartBeatInterval {
+			fmt.Printf("%s timed out\n", activeORs.all[pKey].Address)
 			delete(activeORs.all, pKey)
 			activeORs.Unlock()
 			return
 		}
-		fmt.Println("%s is alive", activeORs.all[pKey].Address)
+		fmt.Printf("%s is alive\n", activeORs.all[pKey].Address)
 		activeORs.Unlock()
-		time.Sleep(time.Duration(heartBeatInterval)*time.Second)
+		time.Sleep(time.Duration(heartBeatInterval) * time.Second)
 	}
 }

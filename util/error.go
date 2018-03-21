@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	ErrLog *log.Logger = log.New(os.Stderr, "[miner] ", log.Lshortfile|log.LUTC|log.Lmicroseconds)
-	OutLog *log.Logger = log.New(os.Stderr, "[miner] ", log.Lshortfile|log.LUTC|log.Lmicroseconds)
+	ErrLog *log.Logger = log.New(os.Stderr, "[LOG] ", log.Lshortfile|log.LUTC|log.Lmicroseconds)
+	OutLog *log.Logger = log.New(os.Stderr, "[LOG] ", log.Lshortfile|log.LUTC|log.Lmicroseconds)
 )
 
 func HandleNonFatalError(msg string, e error) {
