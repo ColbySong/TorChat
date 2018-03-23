@@ -1,0 +1,27 @@
+package cells
+
+import "bytes"
+
+type DataType int
+
+const (
+	CREATE DataType = iota
+	BEGIN
+	DATA
+)
+
+type CellStruct struct {
+	FromAddr string
+	FromHopId int
+	Data []byte
+
+}
+
+type DataWithPayload struct {
+	DataType DataType
+	Flag bool // for CREATE, flag is when exit node is reached
+	Label string // for CREATE, Label is the next OR Addr
+	Data []byte
+	// data for each DataType:
+	// CREATE: next node address,  BEGIN: IRC server address, DATA: chat message
+}

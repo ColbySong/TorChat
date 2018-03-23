@@ -18,6 +18,10 @@ import (
 	"net/http"
 
 	"../util"
+	"crypto/sha256"
+	"../cells"
+	"crypto/rsa"
+	"encoding/json"
 )
 
 const HeartbeatMultiplier = 2
@@ -25,8 +29,16 @@ const HeartbeatMultiplier = 2
 type OnionRouter struct {
 	addr      string
 	dirServer *rpc.Client
+	nextORServer *rpc.Client
 	pubKey    *ecdsa.PublicKey
 	privKey   *ecdsa.PrivateKey
+	nextORByPrevAddr map[string]map[int]NextOR
+}
+
+type NextOR struct {
+	exitNode bool
+	hopId int
+	addr string
 }
 
 type OnionRouterInfo struct {
@@ -190,20 +202,91 @@ type ORServer struct {
 	OnionRouter *OnionRouter
 }
 
-func (s ORServer) Control(_, _ignore *bool) error {
-	// TODO
 
+func (or OnionRouter) handleCreate(fromAddr string, fromHopId int, data cells.DataWithPayload) error {
+	// read next 8 bytes of data to determine if exit node or not
+	if data.Flag {
+		or.nextORByPrevAddr[fromAddr][fromHopId] = NextOR {
+			exitNode: true,
+		}
+		return nil
+	} else {
+		// generate unused random int as nextHopId
+		var randInt = 0
+		var nextAddr = data.Label
+		or.nextORByPrevAddr[fromAddr][fromHopId] = NextOR{
+			hopId: randInt,
+			addr: nextAddr,
+		}
+
+		// create RPC connection to nextOR and save it
+		orServer := DialOR(nextAddr)
+		or.nextORServer = orServer
+
+		// send create onion to nextOR
+		err := or.relayData(randInt, data.Data)
+		return err
+	}
+}
+
+func (or OnionRouter) handleBegin(data cells.DataWithPayload) error {
+	// TODO: create TCP connection to IRC server
 	return nil
 }
 
-func (s ORServer) Relay(_, _ignore *bool) error {
-	// TODO
-
+func (or OnionRouter) handleData(data cells.DataWithPayload) error {
+	// TODO: send username/msg to IRC server
 	return nil
 }
 
-func (s ORServer) SendMessageToNextNode(_, _ignore *bool) error {
-	// TODO
+func (or OnionRouter) relayData(toHopId int, encryptedData []byte) error{
+	cell := cells.CellStruct{
+		FromAddr: or.addr,
+		FromHopId: toHopId,
+		Data: encryptedData,
+	}
+	var ack bool
+	err := or.nextORServer.Call("ORServer.DecryptCell", cell, &ack)
+	return err
+}
 
+func (or OnionRouter) getNextOR(fromAddr string, fromHopId int) NextOR {
+	return or.nextORByPrevAddr[fromAddr][fromHopId]
+}
+
+func DialOR(ORAddr string) *rpc.Client{
+	orServer, err := rpc.Dial("tcp", ORAddr)
+	util.HandleFatalError("Could not dial OR", err)
+	return orServer
+}
+
+func (s *ORServer) DecryptCell(cell cells.CellStruct, ack bool) error {
+	//based on hopId, find addr to send to
+	unencryptedData, _ := rsa.DecryptOAEP(sha256.New(), nil, s.OnionRouter.privKey, cell.Data, nil)
+
+	var dataWithPayload cells.DataWithPayload
+	json.Unmarshal(unencryptedData, dataWithPayload)
+
+	// read first ___# of bytes to see if create, begin, data
+	switch dataWithPayload.DataType {
+	case cells.CREATE:
+		err := s.OnionRouter.handleCreate(cell.FromAddr, cell.FromHopId, dataWithPayload)
+		return err
+	case cells.BEGIN:
+		nextOR := s.OnionRouter.getNextOR(cell.FromAddr, cell.FromHopId)
+		if !nextOR.exitNode {
+			err := s.OnionRouter.relayData(nextOR.hopId, dataWithPayload.Data)
+			return err
+		}
+		s.OnionRouter.handleBegin(dataWithPayload)
+
+	case cells.DATA:
+		nextOR := s.OnionRouter.getNextOR(cell.FromAddr, cell.FromHopId)
+		if !nextOR.exitNode {
+			err := s.OnionRouter.relayData(nextOR.hopId, dataWithPayload.Data)
+			return err
+		}
+		s.OnionRouter.handleData(dataWithPayload)
+	}
 	return nil
 }
