@@ -9,7 +9,7 @@ import (
 
 type CServer int
 
-var (
+const (
 	cserverPort string = ":12346"
 )
 
@@ -24,7 +24,8 @@ func main() {
 	fmt.Println("Server is listening on addr/port: ", listener.Addr(), "\n")
 
 	for {
-		conn, _ := listener.Accept()
+		conn, err := listener.Accept()
+		util.HandleFatalError("Error accepting", err)
 		go server.ServeConn(conn)
 	}
 }
