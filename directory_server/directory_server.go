@@ -1,4 +1,4 @@
-//go run server.go
+//go run directory_server.go
 package main
 
 import (
