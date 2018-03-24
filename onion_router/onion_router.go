@@ -19,7 +19,7 @@ import (
 
 	"../util"
 	"crypto/sha256"
-	"../cells"
+	"../onion"
 	"crypto/rsa"
 	"encoding/json"
 )
@@ -29,16 +29,8 @@ const HeartbeatMultiplier = 2
 type OnionRouter struct {
 	addr      string
 	dirServer *rpc.Client
-	nextORServer *rpc.Client
 	pubKey    *ecdsa.PublicKey
 	privKey   *ecdsa.PrivateKey
-	nextORByPrevAddr map[string]map[int]NextOR
-}
-
-type NextOR struct {
-	exitNode bool
-	hopId int
-	addr string
 }
 
 type OnionRouterInfo struct {
@@ -203,55 +195,29 @@ type ORServer struct {
 }
 
 
-func (or OnionRouter) handleCreate(fromAddr string, fromHopId int, data cells.DataWithPayload) error {
-	// read next 8 bytes of data to determine if exit node or not
-	if data.Flag {
-		or.nextORByPrevAddr[fromAddr][fromHopId] = NextOR {
-			exitNode: true,
-		}
-		return nil
-	} else {
-		// generate unused random int as nextHopId
-		var randInt = 0
-		var nextAddr = data.Label
-		or.nextORByPrevAddr[fromAddr][fromHopId] = NextOR{
-			hopId: randInt,
-			addr: nextAddr,
-		}
-
-		// create RPC connection to nextOR and save it
-		orServer := DialOR(nextAddr)
-		or.nextORServer = orServer
-
-		// send create onion to nextOR
-		err := or.relayData(randInt, data.Data)
-		return err
-	}
-}
-
-func (or OnionRouter) handleBegin(data cells.DataWithPayload) error {
-	// TODO: create TCP connection to IRC server
-	return nil
-}
-
-func (or OnionRouter) handleData(data cells.DataWithPayload) error {
+func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	// TODO: send username/msg to IRC server
+	var chatMessage onion.ChatMessage
+	json.Unmarshal(chatMessageByteArray, &chatMessage)
+
+	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
+	var ack bool
+	err = ircServer.Call("IRCServer.SendChatMessage",
+		chatMessage.Username + ":" + chatMessage.Message, &ack)
+	// TODO: send struct to IRC for msg
+	util.HandleFatalError("Could not dial IRC", err)
 	return nil
 }
 
-func (or OnionRouter) relayData(toHopId int, encryptedData []byte) error{
-	cell := cells.CellStruct{
-		FromAddr: or.addr,
-		FromHopId: toHopId,
-		Data: encryptedData,
+func (or OnionRouter) relayOnion(nextORAddress string, nextOnion []byte) error{
+	cell := onion.Cell{
+		Data: nextOnion,
 	}
-	var ack bool
-	err := or.nextORServer.Call("ORServer.DecryptCell", cell, &ack)
-	return err
-}
 
-func (or OnionRouter) getNextOR(fromAddr string, fromHopId int) NextOR {
-	return or.nextORByPrevAddr[fromAddr][fromHopId]
+	nextORServer := DialOR(nextORAddress)
+	var ack bool
+	err := nextORServer.Call("ORServer.DecryptCell", cell, &ack)
+	return err
 }
 
 func DialOR(ORAddr string) *rpc.Client{
@@ -260,33 +226,29 @@ func DialOR(ORAddr string) *rpc.Client{
 	return orServer
 }
 
-func (s *ORServer) DecryptCell(cell cells.CellStruct, ack bool) error {
-	//based on hopId, find addr to send to
-	unencryptedData, _ := rsa.DecryptOAEP(sha256.New(), nil, s.OnionRouter.privKey, cell.Data, nil)
+func (s *ORServer) DecryptCell(cell onion.Cell, ack bool) error {
 
-	var dataWithPayload cells.DataWithPayload
-	json.Unmarshal(unencryptedData, dataWithPayload)
+	// decrypt incoming cell Data field
+	unencryptedOnion, _ := rsa.DecryptOAEP(sha256.New(), nil, s.OnionRouter.privKey, cell.Data, nil)
+
+	var currOnion onion.Onion
+	json.Unmarshal(unencryptedOnion, &currOnion)
+
+	nextOnion := currOnion.Data
 
 	// read first ___# of bytes to see if create, begin, data
-	switch dataWithPayload.DataType {
-	case cells.CREATE:
-		err := s.OnionRouter.handleCreate(cell.FromAddr, cell.FromHopId, dataWithPayload)
-		return err
-	case cells.BEGIN:
-		nextOR := s.OnionRouter.getNextOR(cell.FromAddr, cell.FromHopId)
-		if !nextOR.exitNode {
-			err := s.OnionRouter.relayData(nextOR.hopId, dataWithPayload.Data)
-			return err
+	switch currOnion.DataType {
+	case onion.CHATMESSAGE:
+		if currOnion.IsExitNode {
+			s.OnionRouter.DeliverChatMessage(currOnion.Data)
+		} else {
+			s.OnionRouter.relayOnion(currOnion.NextAddress, nextOnion)
 		}
-		s.OnionRouter.handleBegin(dataWithPayload)
 
-	case cells.DATA:
-		nextOR := s.OnionRouter.getNextOR(cell.FromAddr, cell.FromHopId)
-		if !nextOR.exitNode {
-			err := s.OnionRouter.relayData(nextOR.hopId, dataWithPayload.Data)
-			return err
-		}
-		s.OnionRouter.handleData(dataWithPayload)
+	case onion.TEARDOWN:
 	}
+
+	//TODO: handle err
+	ack = true
 	return nil
 }

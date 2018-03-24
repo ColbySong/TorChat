@@ -1,7 +1,6 @@
-package onion_proxy
+package main
 
 import (
-	"crypto/ecdsa"
 	"encoding/gob"
 	"net"
 	"crypto/elliptic"
@@ -11,10 +10,11 @@ import (
 	"../util"
 
 	"net/rpc"
-	"crypto/sha256"
-	"crypto/rsa"
 	"encoding/json"
-	"../cells"
+	"../onion"
+	"time"
+	"crypto/rsa"
+	"crypto/sha256"
 )
 
 type OPServer struct {
@@ -24,20 +24,13 @@ type OPServer struct {
 // TODO: need global var to keep hopId for all instances of OP
 
 type OnionProxy struct {
-	hopId int
 	addr string
-	ircServerAddr string
 	username string
-	ORInfoByHopNum map[int]ORInfo
+	ircServerAddr string
+	ORInfoByHopNum map[int]onion.ORInfo
 	dirServer *rpc.Client
 	guardNodeServer *rpc.Client
 }
-
-type ORInfo struct {
-	addr string
-	pubKey *ecdsa.PublicKey
-}
-
 
 // Example Commands
 // go run onion_proxy.go localhost:12345 127.0.0.1:9000 127.0.0.1:8000
@@ -45,12 +38,12 @@ type ORInfo struct {
 
 func main() {
 	gob.Register(&net.TCPAddr{})
-	gob.Register(&elliptic.CurveParams{})
+	gob.Register(&elliptic.CurveParams{}) // TODO: this may be diff for rsa key?
 
 	// Command line input parsing
 	flag.Parse()
 	if len(flag.Args()) != 3 {
-		fmt.Fprintln(os.Stderr, "go run onion_proxy.go [dir-server ip:port] [op ip:port] [privKey]")
+		fmt.Fprintln(os.Stderr, "go run onion_proxy.go [dir-server ip:port] [irc-server ip:port] [op ip:port]")
 		os.Exit(1)
 	}
 
@@ -78,9 +71,6 @@ func main() {
 		ircServerAddr: ircServerAddr,
 	}
 
-	//TODO: get addr and pub keys from dir-server
-	addrSet := onionProxy.GetNodes()
-
 	// Start listening for RPC calls from ORs
 	opServer := new(OPServer)
 	opServer.OnionProxy = onionProxy
@@ -91,7 +81,6 @@ func main() {
 	util.HandleFatalError("Listen error", err)
 	util.OutLog.Printf("OPServer started. Receiving on %s\n", opAddr)
 
-	opServer.CreateCircuit(addrSet)
 
 	// new OP connection for each incoming client
 	for {
@@ -101,96 +90,99 @@ func main() {
 
 }
 
-func (op OnionProxy) GetNodes() []string {
-	//TODO: do i need to provide pubkey to GetNodes as an OP?
-	//TODO: can i just get the pubKey from the ORAddrSet?
-	var ORAddressSet []string
-	op.dirServer.Call("DServer.GetNodes", nil, &ORAddressSet)
-	return ORAddressSet
-}
+func (s *OPServer) Connect(username string) error {
+	// Register username to OP
+	s.OnionProxy.username = username
 
-func (op OnionProxy) DialOR(ORAddr string) *rpc.Client{
-	orServer, err := rpc.Dial("tcp", ORAddr)
-	util.HandleFatalError("Could not dial OR", err)
-	return orServer
-}
+	// First, wait to establish first new circuit
+	s.OnionProxy.GetNewCircuit()
+	//TODO: handle err
 
-
-func (op OnionProxy) SendOnion(onion []byte) error {
-	// Send onion to the guardNode via RPC
-	cell := cells.CellStruct {
-		FromAddr: op.addr,
-		FromHopId: op.hopId,
-		Data: onion,
-	}
-	var ack bool
-	err := op.guardNodeServer.Call("ORServer.DecryptCell", cell, &ack)
+	// Then, start loop to establish new circuit every 2 mins
+	go s.OnionProxy.GetNewCircuitEveryTwoMinutes()
 	return nil
 }
 
-func (s *OPServer) CreateCircuit(ORInfos []string) error {
-	var addrSet = make([]string, len(ORInfos))
-	for hopNum, addr := range addrSet {
-		s.OnionProxy.ORInfoByHopNum[hopNum] = ORInfo{
-			addr: ORInfos.addr,
-			pubKey: ORInfos.pubkey,
-		}
-	}
-	onion := s.OnionProxy.OnionizeData(cells.CREATE, nil)
-	err := s.OnionProxy.SendOnion(onion)
-	return err
+func (op OnionProxy) GetNewCircuit() error {
+	op.GetCircuitFromDServer()
+	return nil
 }
 
-func (s *OPServer) Connect(username string) error {
-	s.OnionProxy.username = username
+func (op OnionProxy) GetNewCircuitEveryTwoMinutes() error {
+	for {
+		select {
+		case <- time.After(120 * time.Second): //get new circuit after 2 minutes
+			op.GetCircuitFromDServer()
+		}
+	}
+}
 
+func (op OnionProxy) GetCircuitFromDServer() []onion.ORInfo {
+	//TODO: Wait for change for Colby to get back addr/pubkey from GetNodes to DServer; []ORInfo is a suggestion
+	var ORSet []onion.ORInfo //ORSet can be a struct containing the OR address and pubkey
+	op.dirServer.Call("DServer.GetNodes", nil, &ORSet)
+	for hopNum, orInfo := range ORSet {
+		op.ORInfoByHopNum[hopNum] = orInfo
+	}
 
-	ircServerAddr := []byte(s.OnionProxy.ircServerAddr)
+	// Initiate and save RPC connection with guard node
+	op.DialOR(op.ORInfoByHopNum[0].Address)
+	return ORSet
+}
 
-	onion := s.OnionProxy.OnionizeData(cells.DATA, ircServerAddr)
-
-	guardNode := s.OnionProxy.ORInfoByHopNum[0]
-	orServer := s.OnionProxy.DialOR(guardNode.addr)
-	s.OnionProxy.guardNodeServer = orServer
-
-	s.OnionProxy.SendOnion(onion)
-
+func (op OnionProxy) DialOR(ORAddr string) error {
+	orServer, err := rpc.Dial("tcp", ORAddr)
+	util.HandleFatalError("Could not dial onion router", err)
+	op.guardNodeServer = orServer
 	return nil
 }
 
 func (s *OPServer) SendMessage(message string, chatHistory *string) error {
 
-	chatMessage := []byte(s.OnionProxy.username + ": "+ message)
+	chatMessage := onion.ChatMessage {
+		IRCServerAddr: s.OnionProxy.ircServerAddr,
+		Username: s.OnionProxy.username,
+		Message: message,
+	}
+	jsonData, _ := json.Marshal(&chatMessage)
 
-	onion := s.OnionProxy.OnionizeData(cells.DATA, chatMessage)
-
+	onion := s.OnionProxy.OnionizeData(onion.CHATMESSAGE, jsonData)
 	err := s.OnionProxy.SendOnion(onion)
 	return err
 }
 
-func (op OnionProxy) OnionizeData(dataType cells.DataType, data []byte) []byte {
-	encryptedData := data
+func (op OnionProxy) OnionizeData(dataType onion.DataType, coreData []byte) []byte {
+
+	encryptedLayer := coreData
+
 	for hopNum := len(op.ORInfoByHopNum); hopNum < 0; hopNum-- {
-		unencryptedData := cells.DataWithPayload{
+		unencryptedLayer := onion.Onion{
 			DataType: dataType,
-			Data: encryptedData,
+			Data: encryptedLayer,
+			NextAddress: op.ORInfoByHopNum[hopNum].Address,
 		}
 
-		//CREATE specifics
-		if dataType == cells.CREATE {
-			if hopNum == len(op.ORInfoByHopNum) {
-				unencryptedData.Flag = true
-			}
-			if hopNum < len(op.ORInfoByHopNum) {
-				unencryptedData.Label = op.ORInfoByHopNum[hopNum].addr
-			}
+		if hopNum == len(op.ORInfoByHopNum){
+			unencryptedLayer.IsExitNode = true
 		}
 
-		jsonData, _ := json.Marshal(&unencryptedData)
+		jsonData, _ := json.Marshal(&unencryptedLayer)
 
-		pubKeyOfOR := op.ORInfoByHopNum[hopNum].pubKey
-		encryptedData, _ = rsa.EncryptOAEP(sha256.New(), nil, pubKeyOfOR, jsonData, nil)
-		return encryptedData
+		pubKeyOfOR := op.ORInfoByHopNum[hopNum].Pubkey
+		encryptedLayer, _ = rsa.EncryptOAEP(sha256.New(), nil, pubKeyOfOR, jsonData, nil)
 	}
+	return encryptedLayer
+}
 
+
+func (op OnionProxy) SendOnion(onion []byte) error {
+	// Send onion to the guardNode via RPC
+	cell := onion.Cell {
+		// Can add more in cell if each layer needs more info other (such as hopId)
+		Data: onion,
+	}
+	var ack bool
+	err := op.guardNodeServer.Call("ORServer.DecryptCell", cell, &ack)
+	//TODO: handle error
+	return err
 }
