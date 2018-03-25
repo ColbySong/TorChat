@@ -132,7 +132,7 @@ func (or OnionRouter) startSendingHeartbeatsToServer() {
 // Send a single heartbeat to the server
 func (or OnionRouter) sendHeartBeat() {
 	var ignoredResp bool // there is no response for this RPC call
-	err := or.dirServer.Call("DServer.KeepNodeOnline", *or.pubKey, &ignoredResp)
+	err := or.dirServer.Call("DServer.KeepNodeOnline", or.addr, &ignoredResp)
 	util.HandleFatalError("Could not send heartbeat to directory server", err)
 }
 

@@ -35,10 +35,6 @@ type ActiveORs struct {
 }
 
 const (
-	// Directory Server Errors
-	unregisteredAddrError UnregisteredAddrError = errors.New("Given OR ip:port is not registered")
-	notEnoughORsError    NotEnoughORsError    = errors.New("Not enough ORs")
-
 	// Server configurations
 	serverPort        string = ":12345"
 	heartBeatInterval int64  = 2 // seconds
@@ -46,6 +42,10 @@ const (
 )
 
 var (
+	// Directory Server Errors
+	unregisteredAddrError UnregisteredAddrError = errors.New("Given OR ip:port is not registered")
+	notEnoughORsError    NotEnoughORsError    = errors.New("Not enough ORs")
+
 	// All the active onion routers in the system mapped by ip:port of OR
 	activeORs ActiveORs = ActiveORs{all: make(map[string]*OnionRouter)}
 )
@@ -83,7 +83,7 @@ func (s *DServer) RegisterNode(or OnionRouterInfo, ack *bool) error {
 }
 
 // The RPC call to GetNodes does not require any arguments
-func (s *DServer) GetNodes(_ignored string, addrSet *[]string) error {
+func (s *DServer) GetNodes(_ignored string, orSet *[]OnionRouterInfo) error {
 	if len(activeORs.all) < numHops {
 		return notEnoughORsError
 	}
@@ -91,7 +91,7 @@ func (s *DServer) GetNodes(_ignored string, addrSet *[]string) error {
 	activeORs.RLock()
 	defer activeORs.RUnlock()
 
-	orAddresses := make([]string, len(activeORs.all)-1)
+	var orAddresses []string
 
 	// list of all OR addresses
 	for orAddress, _ := range activeORs.all {
@@ -102,14 +102,16 @@ func (s *DServer) GetNodes(_ignored string, addrSet *[]string) error {
 	rand.Seed(time.Now().UnixNano())
 	randomIndexes := rand.Perm(len(activeORs.all))
 
-	var orCircuitIPs []string
-	j := 0
-	for _, i := range randomIndexes {
-		orCircuitIPs[j] = orAddresses[i]
-		j++
+	var orInfos []OnionRouterInfo
+	for i := 0; i < numHops; i++ {
+		randomORip := orAddresses[randomIndexes[i]]
+		orInfos = append(orInfos, OnionRouterInfo{
+			Address: randomORip,
+			PubKey: activeORs.all[randomORip].PubKey,
+		})
 	}
 
-	*addrSet = orCircuitIPs[:numHops]
+	*orSet = orInfos[:numHops]
 
 	return nil
 }
