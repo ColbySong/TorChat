@@ -2,7 +2,6 @@
 package main
 
 import (
-	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/gob"
 	"errors"
@@ -12,21 +11,22 @@ import (
 	"net/rpc"
 	"sync"
 	"time"
+	"crypto/rsa"
 )
 
-type UnregisteredKeyError error
+type UnregisteredAddrError error
 type NotEnoughORsError error
 
 type DServer int
 
 type OnionRouter struct {
-	Address             string
+	PubKey  rsa.PublicKey
 	MostRecentHeartBeat int64
 }
 
 type OnionRouterInfo struct {
 	Address string
-	PubKey  ecdsa.PublicKey
+	PubKey  rsa.PublicKey
 }
 
 type ActiveORs struct {
@@ -34,17 +34,19 @@ type ActiveORs struct {
 	all map[string]*OnionRouter
 }
 
-var (
+const (
 	// Directory Server Errors
-	unregisteredKeyError UnregisteredKeyError = errors.New("Given Key is not registered")
+	unregisteredAddrError UnregisteredAddrError = errors.New("Given OR ip:port is not registered")
 	notEnoughORsError    NotEnoughORsError    = errors.New("Not enough ORs")
 
 	// Server configurations
 	serverPort        string = ":12345"
 	heartBeatInterval int64  = 2 // seconds
 	numHops           int    = 3 // how many ORs will be in the circuit
+)
 
-	// All the active onion routers in the system mapped by pubKey
+var (
+	// All the active onion routers in the system mapped by ip:port of OR
 	activeORs ActiveORs = ActiveORs{all: make(map[string]*OnionRouter)}
 )
 
@@ -69,21 +71,19 @@ func (s *DServer) RegisterNode(or OnionRouterInfo, ack *bool) error {
 	activeORs.Lock()
 	defer activeORs.Unlock()
 
-	pKey := pubKeyToString(or.PubKey)
-
-	activeORs.all[pKey] = &OnionRouter{
-		or.Address,
+	activeORs.all[or.Address] = &OnionRouter{
+		or.PubKey,
 		time.Now().Unix(),
 	}
 
-	go monitor(pKey)
+	go monitor(or.Address)
 	fmt.Printf("Got register from %s\n", or.Address)
-	// fmt.Println(activeORs.all)
 
 	return nil
 }
 
-func (s *DServer) GetNodes(key ecdsa.PublicKey, addrSet *[]string) error {
+// The RPC call to GetNodes does not require any arguments
+func (s *DServer) GetNodes(_ignored string, addrSet *[]string) error {
 	if len(activeORs.all) < numHops {
 		return notEnoughORsError
 	}
@@ -91,19 +91,11 @@ func (s *DServer) GetNodes(key ecdsa.PublicKey, addrSet *[]string) error {
 	activeORs.RLock()
 	defer activeORs.RUnlock()
 
-	pKey := pubKeyToString(key)
-
-	if _, ok := activeORs.all[pKey]; !ok {
-		return unregisteredKeyError
-	}
-
 	orAddresses := make([]string, len(activeORs.all)-1)
 
-	for p, orAddress := range activeORs.all {
-		if pKey == p {
-			continue
-		}
-		orAddresses = append(orAddresses, orAddress.Address)
+	// list of all OR addresses
+	for orAddress, _ := range activeORs.all {
+		orAddresses = append(orAddresses, orAddress)
 	}
 
 	// return random array of OR IP addresses to be used in constructing circuit
@@ -122,17 +114,15 @@ func (s *DServer) GetNodes(key ecdsa.PublicKey, addrSet *[]string) error {
 	return nil
 }
 
-func (s *DServer) KeepNodeOnline(key ecdsa.PublicKey, ack *bool) error {
+func (s *DServer) KeepNodeOnline(orAddress string, ack *bool) error {
 	activeORs.Lock()
 	defer activeORs.Unlock()
 
-	pKey := pubKeyToString(key)
-
-	if _, ok := activeORs.all[pKey]; !ok {
-		return unregisteredKeyError
+	if _, ok := activeORs.all[orAddress]; !ok {
+		return unregisteredAddrError
 	}
 
-	activeORs.all[pKey].MostRecentHeartBeat = time.Now().Unix()
+	activeORs.all[orAddress].MostRecentHeartBeat = time.Now().Unix()
 
 	return nil
 }
@@ -143,21 +133,17 @@ func printError(err error) {
 	}
 }
 
-func pubKeyToString(key ecdsa.PublicKey) string {
-	return string(elliptic.Marshal(key.Curve, key.X, key.Y))
-}
-
 // removes dead ORs
-func monitor(pKey string) {
+func monitor(orAddress string) {
 	for {
 		activeORs.Lock()
-		if time.Now().Unix()-activeORs.all[pKey].MostRecentHeartBeat > heartBeatInterval {
-			fmt.Printf("%s timed out\n", activeORs.all[pKey].Address)
-			delete(activeORs.all, pKey)
+		if time.Now().Unix()-activeORs.all[orAddress].MostRecentHeartBeat > heartBeatInterval {
+			fmt.Printf("%s timed out\n", orAddress)
+			delete(activeORs.all, orAddress)
 			activeORs.Unlock()
 			return
 		}
-		fmt.Printf("%s is alive\n", activeORs.all[pKey].Address)
+		fmt.Printf("%s is alive\n", orAddress)
 		activeORs.Unlock()
 		time.Sleep(time.Duration(heartBeatInterval) * time.Second)
 	}
