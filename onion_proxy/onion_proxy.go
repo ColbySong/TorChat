@@ -82,30 +82,6 @@ func main() {
 	util.HandleFatalError("Listen error", err)
 	util.OutLog.Printf("OPServer started. Receiving on %s\n", opAddr)
 
-	key := []byte("0123456789123456")
-	cipherkey, err := aes.NewCipher(key)
-	ToEnc := []byte("1234567890123456")
-
-	ciphertext := make([]byte, aes.BlockSize+len(ToEnc))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		fmt.Fprintf(os.Stderr, "Error in reading iv??: %s\n", err)
-	}
-	fmt.Printf("data before encryption: %v \n", ToEnc)
-	cfb := cipher.NewCFBEncrypter(cipherkey, iv)
-	cfb.XORKeyStream(ciphertext[aes.BlockSize:], ToEnc)
-	//fmt.Printf("jsonData after encryption: %v \n", enc)
-	fmt.Printf("done encrypt \n")
-
-	//iv := ciphertext[:aes.BlockSize]
-	msg := ciphertext[aes.BlockSize:]
-	cfb2 := cipher.NewCFBDecrypter(cipherkey, iv)
-	cfb2.XORKeyStream(msg, msg)
-
-
-	fmt.Printf("decrypted: %v \n", string(msg))
-
-
 	// new OP connection for each incoming client
 	for {
 		conn, _ := inbound.Accept()
