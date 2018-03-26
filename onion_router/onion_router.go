@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"../util"
-	"../onion"
+	"../shared_structs"
 	"crypto/rsa"
 	"encoding/json"
 	"crypto/aes"
@@ -34,7 +34,7 @@ type OnionRouterInfo struct {
 	PubKey  *rsa.PublicKey
 }
 
-// Start the onion router.
+// Start the shared_structs router.
 // go run onion_router.go localhost:12345 127.0.0.1:8000
 func main() {
 	gob.Register(&net.TCPAddr{})
@@ -76,7 +76,7 @@ func main() {
 	util.HandleFatalError("Could not dial directory server", err)
 
 	addr, err := net.ResolveTCPAddr("tcp", orAddr)
-	util.HandleFatalError("Could not resolve onion-router address", err)
+	util.HandleFatalError("Could not resolve shared_structs-router address", err)
 
 	inbound, err := net.ListenTCP("tcp", addr)
 	util.HandleFatalError("Could not listen", err)
@@ -96,7 +96,7 @@ func main() {
 
 	go onionRouter.startSendingHeartbeatsToServer()
 
-	// Start listening for RPC calls from other onion routers
+	// Start listening for RPC calls from other shared_structs routers
 	orServer := new(ORServer)
 	orServer.OnionRouter = onionRouter
 
@@ -112,7 +112,7 @@ func main() {
 	}
 }
 
-// Registers the onion router on the directory server by making an RPC call.
+// Registers the shared_structs router on the directory server by making an RPC call.
 func (or OnionRouter) registerNode() {
 	_, err := net.ResolveTCPAddr("tcp", or.addr)
 	util.HandleFatalError("Could not resolve tcp addr", err)
@@ -122,7 +122,7 @@ func (or OnionRouter) registerNode() {
 	}
 	var resp bool // there is no response for this RPC call
 	err = or.dirServer.Call("DServer.RegisterNode", req, &resp)
-	util.HandleFatalError("Could not register onion router", err)
+	util.HandleFatalError("Could not register shared_structs router", err)
 }
 
 // Periodically send heartbeats to the server at period defined by server times a frequency multiplier
@@ -165,7 +165,7 @@ type ORServer struct {
 
 func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	// TODO: send username/msg to IRC server
-	var chatMessage onion.ChatMessage
+	var chatMessage shared_structs.ChatMessage
 	json.Unmarshal(chatMessageByteArray, &chatMessage)
 
 	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
@@ -178,7 +178,7 @@ func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 }
 
 func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte) error{
-	cell := onion.Cell{
+	cell := shared_structs.Cell{
 		Data: nextOnion,
 	}
 
@@ -194,7 +194,7 @@ func DialOR(ORAddr string) *rpc.Client{
 	return orServer
 }
 
-func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
+func (s *ORServer) DecryptChatMessageCell(cell shared_structs.Cell, ack *bool) error {
 	fmt.Printf("Recieved Onion \n")
 
 	//TODO: create symmetric shared key with OP
@@ -210,7 +210,7 @@ func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
 	cfb := cipher.NewCFBDecrypter(cipherkey, iv)
 	cfb.XORKeyStream(jsonData, jsonData)
 
-	var currOnion onion.Onion
+	var currOnion shared_structs.Onion
 	json.Unmarshal(jsonData, &currOnion)
 	nextOnion := currOnion.Data
 
@@ -219,7 +219,7 @@ func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
 		fmt.Printf("Deliver chat message to IRC server")
 	} else {
 		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion)
-		fmt.Printf("Send chat message onion to next addr: %s \n", currOnion.NextAddress)
+		fmt.Printf("Send chat message shared_structs to next addr: %s \n", currOnion.NextAddress)
 	}
 
 	//TODO: handle err

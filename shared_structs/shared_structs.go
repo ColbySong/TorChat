@@ -1,4 +1,4 @@
-package onion
+package shared_structs
 
 import (
 	"crypto/rsa"

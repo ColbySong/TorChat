@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 	"crypto/rsa"
-	"../onion"
+	"../shared_structs"
 )
 
 type UnregisteredAddrError error
@@ -42,7 +42,7 @@ var (
 	unregisteredAddrError UnregisteredAddrError = errors.New("Given OR ip:port is not registered")
 	notEnoughORsError    NotEnoughORsError    = errors.New("Not enough ORs")
 
-	// All the active onion routers in the system mapped by ip:port of OR
+	// All the active shared_structs routers in the system mapped by ip:port of OR
 	activeORs ActiveORs = ActiveORs{all: make(map[string]*OnionRouter)}
 )
 
@@ -63,7 +63,7 @@ func main() {
 	}
 }
 
-func (s *DServer) RegisterNode(or onion.OnionRouterInfo, ack *bool) error {
+func (s *DServer) RegisterNode(or shared_structs.OnionRouterInfo, ack *bool) error {
 	activeORs.Lock()
 	defer activeORs.Unlock()
 
@@ -79,7 +79,7 @@ func (s *DServer) RegisterNode(or onion.OnionRouterInfo, ack *bool) error {
 }
 
 // The RPC call to GetNodes does not require any arguments
-func (s *DServer) GetNodes(_ignored string, orSet *[]onion.OnionRouterInfo) error {
+func (s *DServer) GetNodes(_ignored string, orSet *[]shared_structs.OnionRouterInfo) error {
 	if len(activeORs.all) < numHops {
 		return notEnoughORsError
 	}
@@ -98,10 +98,10 @@ func (s *DServer) GetNodes(_ignored string, orSet *[]onion.OnionRouterInfo) erro
 	rand.Seed(time.Now().UnixNano())
 	randomIndexes := rand.Perm(len(activeORs.all))
 
-	var orInfos []onion.OnionRouterInfo
+	var orInfos []shared_structs.OnionRouterInfo
 	for i := 0; i < numHops; i++ {
 		randomORip := orAddresses[randomIndexes[i]]
-		orInfos = append(orInfos, onion.OnionRouterInfo{
+		orInfos = append(orInfos, shared_structs.OnionRouterInfo{
 			Address: randomORip,
 			PubKey: activeORs.all[randomORip].PubKey,
 		})
