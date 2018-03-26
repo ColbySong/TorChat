@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/gob"
 	"flag"
 	"fmt"
@@ -194,15 +193,18 @@ func DialOR(ORAddr string) *rpc.Client{
 	return orServer
 }
 
-func (s *ORServer) DecryptCell(cell onion.Cell, ack bool) error {
-
+func (s *ORServer) DecryptCell(cell onion.Cell, ack *bool) error {
+	fmt.Printf("Recieved Onion \n")
 	// decrypt incoming cell Data field
-	unencryptedOnion, _ := rsa.DecryptOAEP(sha256.New(), nil, s.OnionRouter.privKey, cell.Data, nil)
-
+	unencryptedOnion, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, s.OnionRouter.privKey, cell.Data, []byte(""))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error from decryption: %s\n", err)
+	}
 	var currOnion onion.Onion
 	json.Unmarshal(unencryptedOnion, &currOnion)
-
 	nextOnion := currOnion.Data
+
+	fmt.Printf("Send to next addr: %s \n", currOnion.NextAddress)
 
 	// read first ___# of bytes to see if create, begin, data
 	switch currOnion.DataType {
@@ -217,6 +219,6 @@ func (s *ORServer) DecryptCell(cell onion.Cell, ack bool) error {
 	}
 
 	//TODO: handle err
-	ack = true
+	*ack = true
 	return nil
 }

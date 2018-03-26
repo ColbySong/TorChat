@@ -34,7 +34,7 @@ type ChatMessage struct {
 	Message string
 }
 
-type ORInfo struct {
+type OnionRouterInfo struct {
 	Address string
-	Pubkey *rsa.PublicKey
+	PubKey  rsa.PublicKey
 }
