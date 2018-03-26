@@ -1,7 +1,7 @@
 package onion
 
 import (
-	"crypto/ecdsa"
+	"crypto/rsa"
 )
 
 type DataType int
@@ -36,5 +36,5 @@ type ChatMessage struct {
 
 type ORInfo struct {
 	Address string
-	Pubkey *ecdsa.PublicKey
+	Pubkey *rsa.PublicKey
 }
