@@ -21,7 +21,7 @@ type NotEnoughORsError error
 type DServer int
 
 type OnionRouter struct {
-	PubKey  rsa.PublicKey
+	PubKey  *rsa.PublicKey
 	MostRecentHeartBeat int64
 }
 
