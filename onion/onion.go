@@ -1,4 +1,4 @@
-package shared_structs
+package onion
 
 import (
 	"crypto/rsa"
@@ -6,7 +6,7 @@ import (
 
 
 type Cell struct {
-	CircId uint32
+	CircuitId uint32
 	Data []byte
 }
 

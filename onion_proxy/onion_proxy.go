@@ -11,7 +11,7 @@ import (
 
 	"net/rpc"
 	"encoding/json"
-	"../shared_structs"
+	"../onion"
 	"time"
 	"crypto/aes"
 	"io"
@@ -26,9 +26,9 @@ type OPServer struct {
 type OnionProxy struct {
 	addr string
 	username string
-	circId uint32
+	circuitId uint32
 	ircServerAddr string
-	ORInfoByHopNum map[int]shared_structs.OnionRouterInfo
+	ORInfoByHopNum map[int]onion.OnionRouterInfo
 	dirServer *rpc.Client
 }
 
@@ -63,7 +63,7 @@ func main() {
 	fmt.Println("OP Address: ", opAddr)
 	fmt.Println("Full Address: ", inbound.Addr().String())
 
-	ORInfoByHopNum := make(map[int]shared_structs.OnionRouterInfo)
+	ORInfoByHopNum := make(map[int]onion.OnionRouterInfo)
 	// Create OnionProxy instance
 	onionProxy := &OnionProxy {
 		addr: opAddr,
@@ -120,8 +120,8 @@ func (op OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 }
 
 func (op OnionProxy) GetCircuitFromDServer() {
-	op.circId = 0 //TODO: generate random uint32 for circId
-	var ORSet []shared_structs.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
+	op.circuitId = 0 //TODO: generate random uint32 for circId
+	var ORSet []onion.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
 	fmt.Printf("New circuit recieved from directory server: ")
@@ -134,12 +134,12 @@ func (op OnionProxy) GetCircuitFromDServer() {
 
 func (op OnionProxy) DialOR(ORAddr string) *rpc.Client {
 	orServer, err := rpc.Dial("tcp", ORAddr)
-	util.HandleFatalError("Could not dial shared_structs router", err)
+	util.HandleFatalError("Could not dial onion router", err)
 	return orServer
 }
 
 func (s *OPServer) SendMessage(message string, ack *bool) error {
-	chatMessage := shared_structs.ChatMessage {
+	chatMessage := onion.ChatMessage {
 		IRCServerAddr: s.OnionProxy.ircServerAddr,
 		Username: s.OnionProxy.username,
 		Message: message,
@@ -149,7 +149,7 @@ func (s *OPServer) SendMessage(message string, ack *bool) error {
 
 	onion := s.OnionProxy.OnionizeData(jsonData)
 
-	err := s.OnionProxy.SendChatMessageOnion(onion, s.OnionProxy.circId)
+	err := s.OnionProxy.SendChatMessageOnion(onion, s.OnionProxy.circuitId)
 	*ack = true //TODO: change RPC response to chat history? error?
 	return err
 }
@@ -159,22 +159,22 @@ func (op OnionProxy) OnionizeData(coreData []byte) []byte {
 	encryptedLayer := coreData
 
 	for hopNum := len(op.ORInfoByHopNum)-1; hopNum >= 0; hopNum-- {
-		unencryptedLayer := shared_structs.Onion{
+		unencryptedLayer := onion.Onion{
 			Data: encryptedLayer,
 		}
 
 		// If layer is meant for an exit node, turn IsExitNode flag on
-		// Otherwise give it the address of the next OR o pass the shared_structs on to.
+		// Otherwise give it the address of the next OR o pass the onion on to.
 		if hopNum == len(op.ORInfoByHopNum)-1 {
 			unencryptedLayer.IsExitNode = true
 		} else {
 			unencryptedLayer.NextAddress = op.ORInfoByHopNum[hopNum+1].Address
 		}
 
-		// json marshal the shared_structs layer
+		// json marshal the onion layer
 		jsonData, _ := json.Marshal(&unencryptedLayer)
 
-		// Encrypt the shared_structs layer
+		// Encrypt the onion layer
 		//TODO: create symmetric shared key with ORs in circuit
 		key := []byte("0123456789123456")
 		cipherkey, err := aes.NewCipher(key)
@@ -202,17 +202,17 @@ func (op OnionProxy) OnionizeData(coreData []byte) []byte {
 
 
 func (op OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) error {
-	// Send shared_structs to the guardNode via RPC
-	cell := shared_structs.Cell {
-		CircId: circId,
+	// Send onion to the guardNode via RPC
+	cell := onion.Cell {
+		CircuitId: circId,
 		// Can add more in cell if each layer needs more info other (such as hopId)
 		Data: onionToSend,
 	}
-	fmt.Printf("Sending shared_structs to guard node \n")
+	fmt.Printf("Sending onion to guard node \n")
 	var ack bool
 	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].Address)
 	err := guardNodeRPCClient.Call("ORServer.DecryptChatMessageCell", cell, &ack)
-	util.HandleFatalError("Could not send shared_structs to guard node", err)
+	util.HandleFatalError("Could not send onion to guard node", err)
 	//TODO: handle error
 	return err
 }
