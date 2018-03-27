@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/gob"
 	"flag"
 	"fmt"
@@ -14,6 +13,11 @@ import (
 	"time"
 
 	"../util"
+	"../onion"
+	"crypto/rsa"
+	"encoding/json"
+	"crypto/aes"
+	"crypto/cipher"
 )
 
 const HeartbeatMultiplier = 2
@@ -27,7 +31,7 @@ type OnionRouter struct {
 
 type OnionRouterInfo struct {
 	Address string
-	PubKey  rsa.PublicKey
+	PubKey  *rsa.PublicKey
 }
 
 // Start the onion router.
@@ -47,7 +51,7 @@ func main() {
 	orAddr := flag.Arg(1)
 
 	// Generate RSA PublicKey and PrivateKey
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	priv, err := rsa.GenerateKey(rand.Reader, 2048) //2048
 	util.HandleFatalError("Could not generate RSA key", err)
 	pub := &priv.PublicKey
 
@@ -114,7 +118,7 @@ func (or OnionRouter) registerNode() {
 	util.HandleFatalError("Could not resolve tcp addr", err)
 	req := OnionRouterInfo{
 		Address: or.addr,
-		PubKey:  *or.pubKey,
+		PubKey:  or.pubKey,
 	}
 	var resp bool // there is no response for this RPC call
 	err = or.dirServer.Call("DServer.RegisterNode", req, &resp)
@@ -158,20 +162,67 @@ type ORServer struct {
 	OnionRouter *OnionRouter
 }
 
-func (s ORServer) Control(_, _ignore *bool) error {
-	// TODO
 
+func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
+	// TODO: send username/msg to IRC server
+	var chatMessage onion.ChatMessage
+	json.Unmarshal(chatMessageByteArray, &chatMessage)
+
+	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
+	var ack bool
+	err = ircServer.Call("CServer.PublishMessage",
+		chatMessage.Username + ":" + chatMessage.Message, &ack)
+	// TODO: send struct to IRC for msg
+	util.HandleFatalError("Could not dial IRC", err)
 	return nil
 }
 
-func (s ORServer) Relay(_, _ignore *bool) error {
-	// TODO
+func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte) error{
+	cell := onion.Cell{
+		Data: nextOnion,
+	}
 
-	return nil
+	nextORServer := DialOR(nextORAddress)
+	var ack bool
+	err := nextORServer.Call("ORServer.DecryptChatMessageCell", cell, &ack)
+	return err
 }
 
-func (s ORServer) SendMessageToNextNode(_, _ignore *bool) error {
-	// TODO
+func DialOR(ORAddr string) *rpc.Client{
+	orServer, err := rpc.Dial("tcp", ORAddr)
+	util.HandleFatalError("Could not dial OR", err)
+	return orServer
+}
 
+func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
+	fmt.Printf("Recieved Onion \n")
+
+	//TODO: create symmetric shared key with OP
+	//TODO: read cell.CircId to identify which shared key to use
+	key := []byte("0123456789123456") // should be multiple of 16 bytes
+	cipherkey, err := aes.NewCipher(key)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error from cipher creation: %s\n", err)
+	}
+
+	iv := cell.Data[:aes.BlockSize]
+	jsonData := cell.Data[aes.BlockSize:]
+	cfb := cipher.NewCFBDecrypter(cipherkey, iv)
+	cfb.XORKeyStream(jsonData, jsonData)
+
+	var currOnion onion.Onion
+	json.Unmarshal(jsonData, &currOnion)
+	nextOnion := currOnion.Data
+
+	if currOnion.IsExitNode {
+		s.OnionRouter.DeliverChatMessage(currOnion.Data)
+		fmt.Printf("Deliver chat message to IRC server")
+	} else {
+		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion)
+		fmt.Printf("Send chat message onion to next addr: %s \n", currOnion.NextAddress)
+	}
+
+	//TODO: handle err
+	*ack = true
 	return nil
 }

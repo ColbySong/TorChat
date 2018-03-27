@@ -63,7 +63,7 @@ func (client *ChatClient) connectToProxy() {
  	client.Proxy = proxy
 
 	var resp bool // todo - should be error return type
- 	err = client.Proxy.Call("OProxy.Connect", client.Name, &resp)
+ 	err = client.Proxy.Call("OPServer.Connect", client.Name, &resp)
  	util.HandleFatalError("Cannot connect to proxy", err)
 
 	fmt.Println("Client to Proxy connection established")
@@ -73,11 +73,8 @@ func (client *ChatClient) getMessageInput() {
 	for {
 		msg := readInputLine(client.Reader)
 
-		// todo - is this the right level to do this type of concat? Or do it in proxy?
-		msgConcat := client.Name + ": " + msg
-
 		var resp bool // todo - should be error return type
-		client.Proxy.Call("OProxy.SendMessage", msgConcat, &resp)
+		client.Proxy.Call("OPServer.SendMessage", msg, &resp)
 	}
 }
 
