@@ -4,22 +4,21 @@ import (
 	"crypto/rsa"
 )
 
-
 type Cell struct {
 	CircuitId uint32
-	Data []byte
+	Data      []byte
 }
 
 type Onion struct {
-	IsExitNode bool // true at layer of exit node
+	IsExitNode  bool   // true at layer of exit node
 	NextAddress string // specifies the next address in the forward direction of the circuit
-	Data []byte
+	Data        []byte
 }
 
 type ChatMessage struct {
 	IRCServerAddr string
-	Username string
-	Message string
+	Username      string
+	Message       string
 }
 
 type OnionRouterInfo struct {

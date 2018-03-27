@@ -3,6 +3,7 @@ package main
 
 import (
 	"crypto/elliptic"
+	"crypto/rsa"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 	"net/rpc"
 	"sync"
 	"time"
-	"crypto/rsa"
+
 	"../onion"
 )
 
@@ -21,7 +22,7 @@ type NotEnoughORsError error
 type DServer int
 
 type OnionRouter struct {
-	PubKey  *rsa.PublicKey
+	PubKey              *rsa.PublicKey
 	MostRecentHeartBeat int64
 }
 
@@ -40,7 +41,7 @@ const (
 var (
 	// Directory Server Errors
 	unregisteredAddrError UnregisteredAddrError = errors.New("Given OR ip:port is not registered")
-	notEnoughORsError    NotEnoughORsError    = errors.New("Not enough ORs")
+	notEnoughORsError     NotEnoughORsError     = errors.New("Not enough ORs")
 
 	// All the active onion routers in the system mapped by ip:port of OR
 	activeORs ActiveORs = ActiveORs{all: make(map[string]*OnionRouter)}
@@ -103,7 +104,7 @@ func (s *DServer) GetNodes(_ignored string, orSet *[]onion.OnionRouterInfo) erro
 		randomORip := orAddresses[randomIndexes[i]]
 		orInfos = append(orInfos, onion.OnionRouterInfo{
 			Address: randomORip,
-			PubKey: activeORs.all[randomORip].PubKey,
+			PubKey:  activeORs.all[randomORip].PubKey,
 		})
 	}
 

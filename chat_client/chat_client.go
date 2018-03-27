@@ -1,14 +1,14 @@
 package main
 
 import (
-	"fmt"
 	"bufio"
+	"fmt"
+	"log"
+	"net"
+	"net/rpc"
 	"os"
 	"strconv"
-	"log"
 	"strings"
-	"net/rpc"
-	"net"
 
 	"../util"
 )
@@ -16,9 +16,9 @@ import (
 const LocalHostAddress = "127.0.0.1"
 
 type ChatClient struct {
-	Name string
+	Name   string
 	Reader *bufio.Reader
-	Proxy *rpc.Client
+	Proxy  *rpc.Client
 }
 
 func main() {
@@ -58,13 +58,13 @@ func (client *ChatClient) connectToProxy() {
 	go client.startClientListen(proxyListener)
 
 	proxyAddr := LocalHostAddress + ":" + proxyPort
- 	proxy, err := rpc.Dial("tcp", proxyAddr)
- 	util.HandleFatalError("Cannot connect to proxy", err)
- 	client.Proxy = proxy
+	proxy, err := rpc.Dial("tcp", proxyAddr)
+	util.HandleFatalError("Cannot connect to proxy", err)
+	client.Proxy = proxy
 
 	var resp bool // todo - should be error return type
- 	err = client.Proxy.Call("OPServer.Connect", client.Name, &resp)
- 	util.HandleFatalError("Cannot connect to proxy", err)
+	err = client.Proxy.Call("OPServer.Connect", client.Name, &resp)
+	util.HandleFatalError("Cannot connect to proxy", err)
 
 	fmt.Println("Client to Proxy connection established")
 }

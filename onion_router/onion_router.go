@@ -12,12 +12,13 @@ import (
 	"os"
 	"time"
 
-	"../util"
-	"../onion"
-	"crypto/rsa"
-	"encoding/json"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rsa"
+	"encoding/json"
+
+	"../onion"
+	"../util"
 )
 
 const HeartbeatMultiplier = 2
@@ -162,7 +163,6 @@ type ORServer struct {
 	OnionRouter *OnionRouter
 }
 
-
 func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	// TODO: send username/msg to IRC server
 	var chatMessage onion.ChatMessage
@@ -171,13 +171,13 @@ func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
 	var ack bool
 	err = ircServer.Call("CServer.PublishMessage",
-		chatMessage.Username + ":" + chatMessage.Message, &ack)
+		chatMessage.Username+":"+chatMessage.Message, &ack)
 	// TODO: send struct to IRC for msg
 	util.HandleFatalError("Could not dial IRC", err)
 	return nil
 }
 
-func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte) error{
+func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte) error {
 	cell := onion.Cell{
 		Data: nextOnion,
 	}
@@ -188,7 +188,7 @@ func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []by
 	return err
 }
 
-func DialOR(ORAddr string) *rpc.Client{
+func DialOR(ORAddr string) *rpc.Client {
 	orServer, err := rpc.Dial("tcp", ORAddr)
 	util.HandleFatalError("Could not dial OR", err)
 	return orServer

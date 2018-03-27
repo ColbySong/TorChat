@@ -1,9 +1,10 @@
 package main
 
 import (
-	"net/rpc"
-	"net"
 	"fmt"
+	"net"
+	"net/rpc"
+
 	"../util"
 )
 
