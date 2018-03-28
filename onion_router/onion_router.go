@@ -181,7 +181,7 @@ func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 }
 
 func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte, circuitId uint32) error {
-	util.OutLog.Println("Relaying chat message to next OR: " + nextORAddress + " with circuit id: " + string(circuitId))
+	util.OutLog.Printf("Relaying chat message to next OR: %s with circuit id: %v\n", nextORAddress, circuitId)
 	cell := onion.Cell{
 		CircuitId: circuitId,
 		Data:      nextOnion,

@@ -30,12 +30,12 @@ type OnionProxy struct {
 	username       string
 	circuitId      uint32
 	ircServerAddr  string
-	ORInfoByHopNum map[int]*ORInfo
+	ORInfoByHopNum map[int]*orInfo
 	dirServer      *rpc.Client
 }
 
-type ORInfo struct {
-	Address   string
+type orInfo struct {
+	address   string
 	pubKey    *rsa.PublicKey
 	sharedKey *[]byte
 }
@@ -71,7 +71,7 @@ func main() {
 	fmt.Println("OP Address: ", opAddr)
 	fmt.Println("Full Address: ", inbound.Addr().String())
 
-	ORInfoByHopNum := make(map[int]*ORInfo)
+	ORInfoByHopNum := make(map[int]*orInfo)
 	// Create OnionProxy instance
 	onionProxy := &OnionProxy{
 		addr:           opAddr,
@@ -133,28 +133,28 @@ func (op *OnionProxy) GetCircuitFromDServer() {
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
 	fmt.Printf("New circuit recieved from directory server: ")
-	for hopNum, orInfo := range ORSet {
+	for hopNum, onionRouterInfo := range ORSet {
 		sharedKey := util.GenerateAESKey()
-		encryptedSharedKey := util.RSAEncrypt(orInfo.PubKey, sharedKey)
+		encryptedSharedKey := util.RSAEncrypt(onionRouterInfo.PubKey, sharedKey)
 
 		circuitInfo := onion.CircuitInfo{
 			CircuitId:          op.circuitId,
 			EncryptedSharedKey: encryptedSharedKey,
 		}
 
-		client := op.DialOR(orInfo.Address)
+		client := op.DialOR(onionRouterInfo.Address)
 		var ack bool
 		client.Call("ORServer.SendCircuitInfo", circuitInfo, &ack)
 		client.Close()
 		util.OutLog.Printf("CircuitId %v, Shared Key: %s\n", circuitInfo.CircuitId, sharedKey)
 
-		op.ORInfoByHopNum[hopNum] = &ORInfo{
-			Address:   orInfo.Address,
-			pubKey:    orInfo.PubKey,
+		op.ORInfoByHopNum[hopNum] = &orInfo{
+			address:   onionRouterInfo.Address,
+			pubKey:    onionRouterInfo.PubKey,
 			sharedKey: &sharedKey,
 		}
 
-		fmt.Printf(" hopnum %v : %s", hopNum, orInfo.Address)
+		fmt.Printf(" hopnum %v : %s", hopNum, onionRouterInfo.Address)
 	}
 	fmt.Printf("\n")
 }
@@ -195,7 +195,7 @@ func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
 		if hopNum == len(op.ORInfoByHopNum)-1 {
 			unencryptedLayer.IsExitNode = true
 		} else {
-			unencryptedLayer.NextAddress = op.ORInfoByHopNum[hopNum+1].Address
+			unencryptedLayer.NextAddress = op.ORInfoByHopNum[hopNum+1].address
 		}
 
 		// json marshal the onion layer
@@ -234,7 +234,7 @@ func (op *OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) er
 	}
 	fmt.Printf("Sending onion to guard node \n")
 	var ack bool
-	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].Address)
+	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].address)
 	err := guardNodeRPCClient.Call("ORServer.DecryptChatMessageCell", cell, &ack)
 	guardNodeRPCClient.Close()
 	util.HandleFatalError("Could not send onion to guard node", err)
