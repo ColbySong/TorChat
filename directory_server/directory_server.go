@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"../onion"
+	"../shared"
 )
 
 type UnregisteredAddrError error
@@ -64,7 +64,7 @@ func main() {
 	}
 }
 
-func (s *DServer) RegisterNode(or onion.OnionRouterInfo, ack *bool) error {
+func (s *DServer) RegisterNode(or shared.OnionRouterInfo, ack *bool) error {
 	activeORs.Lock()
 	defer activeORs.Unlock()
 
@@ -80,7 +80,7 @@ func (s *DServer) RegisterNode(or onion.OnionRouterInfo, ack *bool) error {
 }
 
 // The RPC call to GetNodes does not require any arguments
-func (s *DServer) GetNodes(_ignored string, orSet *[]onion.OnionRouterInfo) error {
+func (s *DServer) GetNodes(_ignored string, orSet *[]shared.OnionRouterInfo) error {
 	if len(activeORs.all) < numHops {
 		return notEnoughORsError
 	}
@@ -99,10 +99,10 @@ func (s *DServer) GetNodes(_ignored string, orSet *[]onion.OnionRouterInfo) erro
 	rand.Seed(time.Now().UnixNano())
 	randomIndexes := rand.Perm(len(activeORs.all))
 
-	var orInfos []onion.OnionRouterInfo
+	var orInfos []shared.OnionRouterInfo
 	for i := 0; i < numHops; i++ {
 		randomORip := orAddresses[randomIndexes[i]]
-		orInfos = append(orInfos, onion.OnionRouterInfo{
+		orInfos = append(orInfos, shared.OnionRouterInfo{
 			Address: randomORip,
 			PubKey:  activeORs.all[randomORip].PubKey,
 		})

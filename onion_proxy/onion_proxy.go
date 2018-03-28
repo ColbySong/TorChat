@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"../onion"
+	"../shared"
 	"../util"
 )
 
@@ -129,7 +129,7 @@ func (op *OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 
 func (op *OnionProxy) GetCircuitFromDServer() {
 	op.circuitId = math_rand.Uint32()
-	var ORSet []onion.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
+	var ORSet []shared.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
 	fmt.Printf("New circuit recieved from directory server: ")
@@ -137,7 +137,7 @@ func (op *OnionProxy) GetCircuitFromDServer() {
 		sharedKey := util.GenerateAESKey()
 		encryptedSharedKey := util.RSAEncrypt(onionRouterInfo.PubKey, sharedKey)
 
-		circuitInfo := onion.CircuitInfo{
+		circuitInfo := shared.CircuitInfo{
 			CircuitId:          op.circuitId,
 			EncryptedSharedKey: encryptedSharedKey,
 		}
@@ -166,7 +166,7 @@ func (op *OnionProxy) DialOR(ORAddr string) *rpc.Client {
 }
 
 func (s *OPServer) SendMessage(message string, ack *bool) error {
-	chatMessage := onion.ChatMessage{
+	chatMessage := shared.ChatMessage{
 		IRCServerAddr: s.OnionProxy.ircServerAddr,
 		Username:      s.OnionProxy.username,
 		Message:       message,
@@ -186,7 +186,7 @@ func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
 	encryptedLayer := coreData
 
 	for hopNum := len(op.ORInfoByHopNum) - 1; hopNum >= 0; hopNum-- {
-		unencryptedLayer := onion.Onion{
+		unencryptedLayer := shared.Onion{
 			Data: encryptedLayer,
 		}
 
@@ -228,7 +228,7 @@ func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
 
 func (op *OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) error {
 	// Send onion to the guardNode via RPC
-	cell := onion.Cell{ // Can add more in cell if each layer needs more info other (such as hopId)
+	cell := shared.Cell{ // Can add more in cell if each layer needs more info other (such as hopId)
 		CircuitId: circId,
 		Data:      onionToSend,
 	}
