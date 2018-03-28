@@ -1,4 +1,4 @@
-package onion
+package shared
 
 import (
 	"crypto/rsa"
@@ -24,4 +24,9 @@ type ChatMessage struct {
 type OnionRouterInfo struct {
 	Address string
 	PubKey  *rsa.PublicKey
+}
+
+type CircuitInfo struct {
+	CircuitId          uint32
+	EncryptedSharedKey []byte
 }

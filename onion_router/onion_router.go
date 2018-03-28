@@ -17,7 +17,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 
-	"../onion"
+	"../shared"
 	"../util"
 )
 
@@ -34,6 +34,8 @@ type OnionRouterInfo struct {
 	Address string
 	PubKey  *rsa.PublicKey
 }
+
+var sharedKeysByCircuitId = make(map[uint32][]byte)
 
 // Start the onion router.
 // go run onion_router.go localhost:12345 127.0.0.1:8000
@@ -165,26 +167,30 @@ type ORServer struct {
 
 func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	// TODO: send username/msg to IRC server
-	var chatMessage onion.ChatMessage
+	var chatMessage shared.ChatMessage
 	json.Unmarshal(chatMessageByteArray, &chatMessage)
 
 	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
 	var ack bool
 	err = ircServer.Call("CServer.PublishMessage",
-		chatMessage.Username+":"+chatMessage.Message, &ack)
+		chatMessage.Username+": "+chatMessage.Message, &ack)
+	ircServer.Close()
 	// TODO: send struct to IRC for msg
 	util.HandleFatalError("Could not dial IRC", err)
 	return nil
 }
 
-func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte) error {
-	cell := onion.Cell{
-		Data: nextOnion,
+func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte, circuitId uint32) error {
+	util.OutLog.Printf("Relaying chat message to next OR: %s with circuit id: %v\n", nextORAddress, circuitId)
+	cell := shared.Cell{
+		CircuitId: circuitId,
+		Data:      nextOnion,
 	}
 
 	nextORServer := DialOR(nextORAddress)
 	var ack bool
 	err := nextORServer.Call("ORServer.DecryptChatMessageCell", cell, &ack)
+	nextORServer.Close()
 	return err
 }
 
@@ -194,12 +200,8 @@ func DialOR(ORAddr string) *rpc.Client {
 	return orServer
 }
 
-func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
-	fmt.Printf("Recieved Onion \n")
-
-	//TODO: create symmetric shared key with OP
-	//TODO: read cell.CircId to identify which shared key to use
-	key := []byte("0123456789123456") // should be multiple of 16 bytes
+func (s *ORServer) DecryptChatMessageCell(cell shared.Cell, ack *bool) error {
+	key := sharedKeysByCircuitId[cell.CircuitId]
 	cipherkey, err := aes.NewCipher(key)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error from cipher creation: %s\n", err)
@@ -210,7 +212,7 @@ func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
 	cfb := cipher.NewCFBDecrypter(cipherkey, iv)
 	cfb.XORKeyStream(jsonData, jsonData)
 
-	var currOnion onion.Onion
+	var currOnion shared.Onion
 	json.Unmarshal(jsonData, &currOnion)
 	nextOnion := currOnion.Data
 
@@ -218,11 +220,21 @@ func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
 		s.OnionRouter.DeliverChatMessage(currOnion.Data)
 		fmt.Printf("Deliver chat message to IRC server")
 	} else {
-		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion)
+		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion, cell.CircuitId)
 		fmt.Printf("Send chat message onion to next addr: %s \n", currOnion.NextAddress)
 	}
 
 	//TODO: handle err
+	*ack = true
+	return nil
+}
+
+func (s *ORServer) SendCircuitInfo(circuitInfo shared.CircuitInfo, ack *bool) error {
+	sharedKey := util.RSADecrypt(s.OnionRouter.privKey, circuitInfo.EncryptedSharedKey)
+	sharedKeysByCircuitId[circuitInfo.CircuitId] = sharedKey
+
+	util.OutLog.Printf("Received circuit info: CircuitId %v, Shared Key: %s\n", circuitInfo.CircuitId, sharedKey)
+
 	*ack = true
 	return nil
 }
