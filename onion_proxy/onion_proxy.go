@@ -127,7 +127,7 @@ func (op OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 }
 
 func (op OnionProxy) GetCircuitFromDServer() {
-	op.circuitId = 0                  //math_rand.Uint32()
+	op.circuitId = uint32(0)          // TODO: math_rand.Uint32()
 	var ORSet []onion.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
@@ -144,6 +144,7 @@ func (op OnionProxy) GetCircuitFromDServer() {
 		client := op.DialOR(orInfo.Address)
 		var ack bool
 		client.Call("ORServer.SendCircuitInfo", circuitInfo, &ack)
+		client.Close()
 		util.OutLog.Printf("CircuitId %v, Shared Key: %s\n", circuitInfo.CircuitId, sharedKey)
 
 		op.ORInfoByHopNum[hopNum] = &ORInfo{
@@ -235,6 +236,7 @@ func (op OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) err
 	var ack bool
 	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].Address)
 	err := guardNodeRPCClient.Call("ORServer.DecryptChatMessageCell", cell, &ack)
+	guardNodeRPCClient.Close()
 	util.HandleFatalError("Could not send onion to guard node", err)
 	//TODO: handle error
 	return err

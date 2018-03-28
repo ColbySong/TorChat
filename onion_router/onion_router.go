@@ -173,7 +173,8 @@ func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
 	var ack bool
 	err = ircServer.Call("CServer.PublishMessage",
-		chatMessage.Username+":"+chatMessage.Message, &ack)
+		chatMessage.Username+": "+chatMessage.Message, &ack)
+	ircServer.Close()
 	// TODO: send struct to IRC for msg
 	util.HandleFatalError("Could not dial IRC", err)
 	return nil
@@ -187,6 +188,7 @@ func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []by
 	nextORServer := DialOR(nextORAddress)
 	var ack bool
 	err := nextORServer.Call("ORServer.DecryptChatMessageCell", cell, &ack)
+	nextORServer.Close()
 	return err
 }
 
