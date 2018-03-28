@@ -35,6 +35,8 @@ type OnionRouterInfo struct {
 	PubKey  *rsa.PublicKey
 }
 
+var sharedKeysByCircuitId = make(map[uint32][]byte)
+
 // Start the onion router.
 // go run onion_router.go localhost:12345 127.0.0.1:8000
 func main() {
@@ -195,11 +197,7 @@ func DialOR(ORAddr string) *rpc.Client {
 }
 
 func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
-	fmt.Printf("Recieved Onion \n")
-
-	//TODO: create symmetric shared key with OP
-	//TODO: read cell.CircId to identify which shared key to use
-	key := []byte("0123456789123456") // should be multiple of 16 bytes
+	key := sharedKeysByCircuitId[cell.CircuitId]
 	cipherkey, err := aes.NewCipher(key)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error from cipher creation: %s\n", err)
@@ -223,6 +221,16 @@ func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
 	}
 
 	//TODO: handle err
+	*ack = true
+	return nil
+}
+
+func (s *ORServer) SendCircuitInfo(circuitInfo onion.CircuitInfo, ack *bool) error {
+	sharedKey := util.RSADecrypt(s.OnionRouter.privKey, circuitInfo.EncryptedSharedKey)
+	sharedKeysByCircuitId[circuitInfo.CircuitId] = sharedKey
+
+	util.OutLog.Printf("Received circuit info: CircuitId %v, Shared Key: %s\n", circuitInfo.CircuitId, sharedKey)
+
 	*ack = true
 	return nil
 }

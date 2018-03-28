@@ -1,24 +1,23 @@
 package main
 
 import (
-	"crypto/elliptic"
-	"encoding/gob"
-	"flag"
-	"fmt"
-	"net"
-	"os"
-
-	"../util"
-
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"encoding/gob"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"io"
+	"net"
 	"net/rpc"
+	"os"
 	"time"
 
 	"../onion"
+	"../util"
 )
 
 type OPServer struct {
@@ -30,8 +29,14 @@ type OnionProxy struct {
 	username       string
 	circuitId      uint32
 	ircServerAddr  string
-	ORInfoByHopNum map[int]onion.OnionRouterInfo
+	ORInfoByHopNum map[int]*ORInfo
 	dirServer      *rpc.Client
+}
+
+type ORInfo struct {
+	Address   string
+	pubKey    *rsa.PublicKey
+	sharedKey *[]byte
 }
 
 // Example Commands
@@ -65,7 +70,7 @@ func main() {
 	fmt.Println("OP Address: ", opAddr)
 	fmt.Println("Full Address: ", inbound.Addr().String())
 
-	ORInfoByHopNum := make(map[int]onion.OnionRouterInfo)
+	ORInfoByHopNum := make(map[int]*ORInfo)
 	// Create OnionProxy instance
 	onionProxy := &OnionProxy{
 		addr:           opAddr,
@@ -122,13 +127,31 @@ func (op OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 }
 
 func (op OnionProxy) GetCircuitFromDServer() {
-	op.circuitId = 0                  //TODO: generate random uint32 for circId
+	op.circuitId = 0                  //math_rand.Uint32()
 	var ORSet []onion.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
 	fmt.Printf("New circuit recieved from directory server: ")
 	for hopNum, orInfo := range ORSet {
-		op.ORInfoByHopNum[hopNum] = orInfo
+		sharedKey := util.GenerateAESKey()
+		encryptedSharedKey := util.RSAEncrypt(orInfo.PubKey, sharedKey)
+
+		circuitInfo := onion.CircuitInfo{
+			CircuitId:          op.circuitId,
+			EncryptedSharedKey: encryptedSharedKey,
+		}
+
+		client := op.DialOR(orInfo.Address)
+		var ack bool
+		client.Call("ORServer.SendCircuitInfo", circuitInfo, &ack)
+		util.OutLog.Printf("CircuitId %v, Shared Key: %s\n", circuitInfo.CircuitId, sharedKey)
+
+		op.ORInfoByHopNum[hopNum] = &ORInfo{
+			Address:   orInfo.Address,
+			pubKey:    orInfo.PubKey,
+			sharedKey: &sharedKey,
+		}
+
 		fmt.Printf(" hopnum %v : %s", hopNum, orInfo.Address)
 	}
 	fmt.Printf("\n")
@@ -177,8 +200,7 @@ func (op OnionProxy) OnionizeData(coreData []byte) []byte {
 		jsonData, _ := json.Marshal(&unencryptedLayer)
 
 		// Encrypt the onion layer
-		//TODO: create symmetric shared key with ORs in circuit
-		key := []byte("0123456789123456")
+		key := *op.ORInfoByHopNum[hopNum].sharedKey
 		cipherkey, err := aes.NewCipher(key)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error from creating cipher: %s\n", err)
