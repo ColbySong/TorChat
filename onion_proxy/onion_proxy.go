@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	math_rand "math/rand"
 	"net"
 	"net/rpc"
 	"os"
@@ -112,12 +113,12 @@ func (s *OPServer) Connect(username string, ack *bool) error {
 	return nil
 }
 
-func (op OnionProxy) GetNewCircuit() error {
+func (op *OnionProxy) GetNewCircuit() error {
 	op.GetCircuitFromDServer()
 	return nil
 }
 
-func (op OnionProxy) GetNewCircuitEveryTwoMinutes() error {
+func (op *OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 	for {
 		select {
 		case <-time.After(120 * time.Second): //get new circuit after 2 minutes
@@ -126,8 +127,8 @@ func (op OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 	}
 }
 
-func (op OnionProxy) GetCircuitFromDServer() {
-	op.circuitId = uint32(0)          // TODO: math_rand.Uint32()
+func (op *OnionProxy) GetCircuitFromDServer() {
+	op.circuitId = math_rand.Uint32()
 	var ORSet []onion.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
@@ -158,7 +159,7 @@ func (op OnionProxy) GetCircuitFromDServer() {
 	fmt.Printf("\n")
 }
 
-func (op OnionProxy) DialOR(ORAddr string) *rpc.Client {
+func (op *OnionProxy) DialOR(ORAddr string) *rpc.Client {
 	orServer, err := rpc.Dial("tcp", ORAddr)
 	util.HandleFatalError("Could not dial onion router", err)
 	return orServer
@@ -180,7 +181,7 @@ func (s *OPServer) SendMessage(message string, ack *bool) error {
 	return err
 }
 
-func (op OnionProxy) OnionizeData(coreData []byte) []byte {
+func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
 	fmt.Printf("Start onionizing data \n")
 	encryptedLayer := coreData
 
@@ -225,12 +226,11 @@ func (op OnionProxy) OnionizeData(coreData []byte) []byte {
 	return encryptedLayer
 }
 
-func (op OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) error {
+func (op *OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) error {
 	// Send onion to the guardNode via RPC
-	cell := onion.Cell{
+	cell := onion.Cell{ // Can add more in cell if each layer needs more info other (such as hopId)
 		CircuitId: circId,
-		// Can add more in cell if each layer needs more info other (such as hopId)
-		Data: onionToSend,
+		Data:      onionToSend,
 	}
 	fmt.Printf("Sending onion to guard node \n")
 	var ack bool

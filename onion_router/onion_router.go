@@ -180,9 +180,11 @@ func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	return nil
 }
 
-func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte) error {
+func (or OnionRouter) RelayChatMessageOnion(nextORAddress string, nextOnion []byte, circuitId uint32) error {
+	util.OutLog.Println("Relaying chat message to next OR: " + nextORAddress + " with circuit id: " + string(circuitId))
 	cell := onion.Cell{
-		Data: nextOnion,
+		CircuitId: circuitId,
+		Data:      nextOnion,
 	}
 
 	nextORServer := DialOR(nextORAddress)
@@ -218,7 +220,7 @@ func (s *ORServer) DecryptChatMessageCell(cell onion.Cell, ack *bool) error {
 		s.OnionRouter.DeliverChatMessage(currOnion.Data)
 		fmt.Printf("Deliver chat message to IRC server")
 	} else {
-		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion)
+		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion, cell.CircuitId)
 		fmt.Printf("Send chat message onion to next addr: %s \n", currOnion.NextAddress)
 	}
 
