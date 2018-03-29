@@ -19,7 +19,11 @@ import (
 
 	"../shared"
 	"../util"
+	"errors"
+	"crypto/ecdsa"
 )
+
+type NotTrustedDirectoryServerError error
 
 type OPServer struct {
 	OnionProxy *OnionProxy
@@ -40,6 +44,13 @@ type orInfo struct {
 	sharedKey *[]byte
 }
 
+const (
+	directoryServerPubKey string = "0449e30da789d5b12a9487a96d70d69b6b8cbd6821d7a647f35c18a8d5f0969054ae3130e7a2a813363eb578747bc77048b700badea328df20ce68a58fcd0e4166f538f9393e0b4072d069cc4cc631271660dc5ebebb20531f11eeb4bd5aa6a5ca"
+)
+
+var (
+	notTrustedDirectoryServerError NotTrustedDirectoryServerError = errors.New("Circuit received from non-trusted directory server")
+)
 // Example Commands
 // go run onion_proxy.go localhost:12345 127.0.0.1:7000 127.0.0.1:9000
 
@@ -105,7 +116,9 @@ func (s *OPServer) Connect(username string, ack *bool) error {
 	fmt.Printf("Client username: %s \n", username)
 
 	// First, wait to establish first new circuit
-	s.OnionProxy.GetNewCircuit()
+	if err := s.OnionProxy.GetNewCircuit(); err != nil {
+		return err
+	}
 	//TODO: handle err
 
 	// Then, start loop to establish new circuit every 2 mins
@@ -114,7 +127,9 @@ func (s *OPServer) Connect(username string, ack *bool) error {
 }
 
 func (op *OnionProxy) GetNewCircuit() error {
-	op.GetCircuitFromDServer()
+	if err := op.GetCircuitFromDServer(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -122,18 +137,26 @@ func (op *OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 	for {
 		select {
 		case <-time.After(120 * time.Second): //get new circuit after 2 minutes
-			op.GetCircuitFromDServer()
+			if err := op.GetCircuitFromDServer(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-func (op *OnionProxy) GetCircuitFromDServer() {
+func (op *OnionProxy) GetCircuitFromDServer() error {
 	op.circuitId = math_rand.Uint32()
-	var ORSet []shared.OnionRouterInfo //ORSet can be a struct containing the OR address and pubkey
+	var ORSet shared.OnionRouterInfos //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
 	fmt.Printf("New circuit recieved from directory server: ")
-	for hopNum, onionRouterInfo := range ORSet {
+
+	// Verify that the circuit came from a trusted directory server
+	if util.PubKeyToString(*ORSet.PubKey) != directoryServerPubKey || !ecdsa.Verify(ORSet.PubKey, ORSet.Hash, ORSet.SigR, ORSet.SigS) {
+		return notTrustedDirectoryServerError
+	}
+
+	for hopNum, onionRouterInfo := range ORSet.ORInfos {
 		sharedKey := util.GenerateAESKey()
 		encryptedSharedKey := util.RSAEncrypt(onionRouterInfo.PubKey, sharedKey)
 
@@ -156,7 +179,10 @@ func (op *OnionProxy) GetCircuitFromDServer() {
 
 		fmt.Printf(" hopnum %v : %s", hopNum, onionRouterInfo.Address)
 	}
+
 	fmt.Printf("\n")
+
+	return nil
 }
 
 func (op *OnionProxy) DialOR(ORAddr string) *rpc.Client {
