@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"../util"
 )
@@ -35,6 +36,7 @@ func main() {
 
 	client.connectToProxy()
 
+	go client.pollForNewMessages()
 	client.getMessageInput()
 }
 
@@ -75,6 +77,21 @@ func (client *ChatClient) getMessageInput() {
 
 		var resp bool // todo - should be error return type
 		client.Proxy.Call("OPServer.SendMessage", msg, &resp)
+	}
+}
+
+func (client *ChatClient) pollForNewMessages() {
+	for {
+		var resp []string
+		client.Proxy.Call("OPServer.GetNewMessages", true, &resp)
+		displayMessages(resp)
+		time.Sleep(time.Duration(100) * time.Millisecond)
+	}
+}
+
+func displayMessages(messages []string) {
+	for _, message := range messages {
+		fmt.Println(message)
 	}
 }
 

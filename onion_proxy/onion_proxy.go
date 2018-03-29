@@ -34,8 +34,10 @@ type OnionProxy struct {
 	username       string
 	circuitId      uint32
 	ircServerAddr  string
+	ircServer      *rpc.Client
 	ORInfoByHopNum map[int]*orInfo
 	dirServer      *rpc.Client
+	lastMessageId  uint32
 }
 
 type orInfo struct {
@@ -73,6 +75,9 @@ func main() {
 	dirServer, err := rpc.Dial("tcp", dirServerAddr)
 	util.HandleFatalError("Could not dial directory server", err)
 
+	ircServer, err := rpc.Dial("tcp", ircServerAddr)
+	util.HandleFatalError("Could not dial irc server", err)
+
 	addr, err := net.ResolveTCPAddr("tcp", opAddr)
 	util.HandleFatalError("Could not resolve onion_proxy address", err)
 
@@ -89,6 +94,8 @@ func main() {
 		dirServer:      dirServer,
 		ircServerAddr:  ircServerAddr,
 		ORInfoByHopNum: ORInfoByHopNum,
+		lastMessageId:  uint32(0),
+		ircServer:      ircServer,
 	}
 
 	// Start listening for RPC calls from ORs
@@ -189,6 +196,17 @@ func (op *OnionProxy) DialOR(ORAddr string) *rpc.Client {
 	orServer, err := rpc.Dial("tcp", ORAddr)
 	util.HandleFatalError("Could not dial onion router", err)
 	return orServer
+}
+
+func (s *OPServer) GetNewMessages(_ignored bool, ack *[]string) error {
+	var resp []string
+	err := s.OnionProxy.ircServer.Call("CServer.GetNewMessages", s.OnionProxy.lastMessageId, &resp)
+	util.HandleFatalError("Could not retrieve new messages from irc server", err)
+
+	s.OnionProxy.lastMessageId = s.OnionProxy.lastMessageId + uint32(len(resp))
+	*ack = resp
+
+	return nil
 }
 
 func (s *OPServer) SendMessage(message string, ack *bool) error {

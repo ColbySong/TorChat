@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/rpc"
+	"sync"
 
 	"../util"
 )
@@ -13,6 +14,13 @@ type CServer int
 const (
 	cserverPort string = ":12346"
 )
+
+type AllMessages struct {
+	sync.RWMutex
+	all []string
+}
+
+var messages = AllMessages{all: make([]string, 0)}
 
 // go run chat_server.go
 func main() {
@@ -33,6 +41,22 @@ func main() {
 
 // TODO: send ack message back to client, for now just print the message received
 func (c *CServer) PublishMessage(msg string, ack *bool) error {
+	messages.Lock()
+	defer messages.Unlock()
+
+	messages.all = append(messages.all, msg)
 	fmt.Println(msg)
+
+	return nil
+}
+
+func (c *CServer) GetNewMessages(last uint32, ack *[]string) error {
+	messages.RLock()
+	defer messages.RUnlock()
+
+	temp := make([]string, len(messages.all))
+	copy(temp, messages.all)
+	*ack = temp[last:]
+
 	return nil
 }
