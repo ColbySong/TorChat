@@ -178,7 +178,7 @@ func monitor(orAddress string) {
 			activeORs.Unlock()
 			return
 		}
-		// fmt.Printf("%s is alive\n", orAddress)
+		fmt.Printf("%s is alive\n", orAddress)
 		activeORs.Unlock()
 		time.Sleep(time.Duration(heartBeatInterval) * time.Second)
 	}
