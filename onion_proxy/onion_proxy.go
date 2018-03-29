@@ -204,14 +204,35 @@ func (op *OnionProxy) DialOR(ORAddr string) *rpc.Client {
 }
 
 func (s *OPServer) GetNewMessages(_ignored bool, ack *[]string) error {
-	var resp []string
-	err := s.OnionProxy.ircServer.Call("CServer.GetNewMessages", s.OnionProxy.lastMessageId, &resp)
-	util.HandleFatalError("Could not retrieve new messages from irc server", err)
+	pollingMessage := shared.PollingMessage{
+		IRCServerAddr: s.OnionProxy.ircServerAddr,
+		LastMessageId: s.OnionProxy.lastMessageId,
+	}
+	jsonData, _ := json.Marshal(&pollingMessage)
 
-	s.OnionProxy.lastMessageId = s.OnionProxy.lastMessageId + uint32(len(resp))
-	*ack = resp
+	onion := s.OnionProxy.OnionizeData(jsonData)
+
+	messages, _ := s.OnionProxy.SendPollingOnion(onion, s.OnionProxy.circuitId)
+	s.OnionProxy.lastMessageId = s.OnionProxy.lastMessageId + uint32(len(messages))
+	*ack = messages
 
 	return nil
+}
+
+func (op *OnionProxy) SendPollingOnion(onionToSend []byte, circId uint32) ([]string, error) {
+	// Send onion to the guardNode via RPC
+	cell := shared.Cell{ // Can add more in cell if each layer needs more info other (such as hopId)
+		CircuitId: circId,
+		Data:      onionToSend,
+	}
+	// fmt.Printf("Sending onion to guard node \n")
+	var ack []string
+	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].address)
+	err := guardNodeRPCClient.Call("ORServer.DecryptPollingCell", cell, &ack)
+	guardNodeRPCClient.Close()
+	util.HandleFatalError("Could not send onion to guard node", err)
+	//TODO: handle error
+	return ack, err
 }
 
 func (s *OPServer) SendMessage(message string, ack *bool) error {
@@ -231,7 +252,7 @@ func (s *OPServer) SendMessage(message string, ack *bool) error {
 }
 
 func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
-	fmt.Printf("Start onionizing data \n")
+	// fmt.Printf("Start onionizing data \n")
 	encryptedLayer := coreData
 
 	for hopNum := len(op.ORInfoByHopNum) - 1; hopNum >= 0; hopNum-- {
@@ -267,11 +288,11 @@ func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
 			fmt.Fprintf(os.Stderr, "Error from encryption: %s\n", err)
 		}
 
-		fmt.Printf("Done onionizing data \n")
+		// fmt.Printf("Done onionizing data \n")
 
 		encryptedLayer = ciphertext
-
 	}
+
 	return encryptedLayer
 }
 
