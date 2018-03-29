@@ -152,7 +152,6 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 	fmt.Printf("New circuit recieved from directory server: ")
 
 	// Verify that the circuit came from a trusted directory server
-	fmt.Println(ecdsa.Verify(ORSet.PubKey, ORSet.Hash, ORSet.SigR, ORSet.SigS))
 	if util.PubKeyToString(*ORSet.PubKey) != directoryServerPubKey || !ecdsa.Verify(ORSet.PubKey, ORSet.Hash, ORSet.SigR, ORSet.SigS) {
 		return notTrustedDirectoryServerError
 	}
