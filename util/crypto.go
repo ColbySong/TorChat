@@ -4,6 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"encoding/hex"
 )
 
 var label = []byte("")
@@ -31,4 +34,8 @@ func GenerateAESKey() []byte {
 	HandleFatalError("Could not generate random AES key", err)
 
 	return key
+}
+
+func PubKeyToString(key ecdsa.PublicKey) string {
+	return hex.EncodeToString(elliptic.Marshal(key.Curve, key.X, key.Y))
 }
