@@ -21,4 +21,3 @@ func HandleFatalError(msg string, e error) {
 		ErrLog.Fatalf("[FATAL ERROR] %s, err = %s\n", msg, e.Error())
 	}
 }
-

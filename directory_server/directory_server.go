@@ -13,14 +13,15 @@ import (
 	"sync"
 	"time"
 
+	"crypto/ecdsa"
+	"crypto/md5"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+
 	"../shared"
 	"../util"
-	"encoding/hex"
-	"crypto/x509"
-	"crypto/ecdsa"
-	"crypto/rand"
-	"encoding/json"
-	"crypto/md5"
 )
 
 type UnregisteredAddrError error
@@ -40,7 +41,7 @@ type ActiveORs struct {
 
 const (
 	// Server configurations
-	privKeyStr           string = "3081a40201010430aeb7b244cf5ee8a952ff378a140275a0d7f98a7c44faca12357867c667b860fa2aaf7bf9039d3b481479bf0fd512097fa00706052b81040022a1640362000449e30da789d5b12a9487a96d70d69b6b8cbd6821d7a647f35c18a8d5f0969054ae3130e7a2a813363eb578747bc77048b700badea328df20ce68a58fcd0e4166f538f9393e0b4072d069cc4cc631271660dc5ebebb20531f11eeb4bd5aa6a5ca"
+	privKeyStr        string = "3081a40201010430aeb7b244cf5ee8a952ff378a140275a0d7f98a7c44faca12357867c667b860fa2aaf7bf9039d3b481479bf0fd512097fa00706052b81040022a1640362000449e30da789d5b12a9487a96d70d69b6b8cbd6821d7a647f35c18a8d5f0969054ae3130e7a2a813363eb578747bc77048b700badea328df20ce68a58fcd0e4166f538f9393e0b4072d069cc4cc631271660dc5ebebb20531f11eeb4bd5aa6a5ca"
 	serverPort        string = ":12345"
 	heartBeatInterval int64  = 2 // seconds
 	numHops           int    = 3 // how many ORs will be in the circuit
@@ -54,7 +55,7 @@ var (
 	// All the active onion routers in the system mapped by ip:port of OR
 	activeORs ActiveORs = ActiveORs{all: make(map[string]*OnionRouter)}
 
-	pubKey ecdsa.PublicKey
+	pubKey  ecdsa.PublicKey
 	privKey *ecdsa.PrivateKey
 )
 
@@ -126,7 +127,7 @@ func (s *DServer) GetNodes(_ignored string, dsORSet *shared.OnionRouterInfos) er
 		})
 	}
 
-        orBytes, err := json.Marshal(orInfos)
+	orBytes, err := json.Marshal(orInfos)
 	util.HandleFatalError("error marshalling OR info", err)
 	hash := md5.New()
 	hash.Write(orBytes)
@@ -136,10 +137,10 @@ func (s *DServer) GetNodes(_ignored string, dsORSet *shared.OnionRouterInfos) er
 	sigR, sigS, _ := ecdsa.Sign(rand.Reader, privKey, hashBytes)
 
 	dsORInfo := shared.OnionRouterInfos{
-		SigS: sigS,
-		SigR: sigR,
-		Hash: hashBytes,
-		PubKey: &pubKey,
+		SigS:    sigS,
+		SigR:    sigR,
+		Hash:    hashBytes,
+		PubKey:  &pubKey,
 		ORInfos: orInfos[:numHops],
 	}
 
