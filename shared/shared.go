@@ -2,6 +2,8 @@ package shared
 
 import (
 	"crypto/rsa"
+	"crypto/ecdsa"
+	"math/big"
 )
 
 type Cell struct {
@@ -19,6 +21,14 @@ type ChatMessage struct {
 	IRCServerAddr string
 	Username      string
 	Message       string
+}
+
+type OnionRouterInfos struct {
+	PubKey *ecdsa.PublicKey
+	Hash  []byte
+	SigS       *big.Int // signed with private key of directory server
+	SigR	     *big.Int // edsca.Sign returns R, S which is both needed to verify
+	ORInfos  []OnionRouterInfo
 }
 
 type OnionRouterInfo struct {
