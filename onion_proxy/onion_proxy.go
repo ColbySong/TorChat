@@ -6,21 +6,22 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	math_rand "math/rand"
 	"net"
 	"net/rpc"
 	"os"
 	"time"
 
+	"crypto/ecdsa"
+	"errors"
+
 	"../shared"
 	"../util"
-	"errors"
-	"crypto/ecdsa"
 )
 
 type NotTrustedDirectoryServerError error
@@ -53,6 +54,7 @@ const (
 var (
 	notTrustedDirectoryServerError NotTrustedDirectoryServerError = errors.New("Circuit received from non-trusted directory server")
 )
+
 // Example Commands
 // go run onion_proxy.go localhost:12345 127.0.0.1:7000 127.0.0.1:9000
 
@@ -152,7 +154,10 @@ func (op *OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 }
 
 func (op *OnionProxy) GetCircuitFromDServer() error {
-	op.circuitId = math_rand.Uint32()
+	var n uint32
+	binary.Read(rand.Reader, binary.LittleEndian, &n)
+	op.circuitId = n
+
 	var ORSet shared.OnionRouterInfos //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
