@@ -15,6 +15,7 @@ import (
 )
 
 const LocalHostAddress = "127.0.0.1"
+const PollingTime = 100
 
 type ChatClient struct {
 	Name   string
@@ -85,7 +86,7 @@ func (client *ChatClient) pollForNewMessages() {
 		var resp []string
 		client.Proxy.Call("OPServer.GetNewMessages", true, &resp)
 		displayMessages(resp)
-		time.Sleep(time.Duration(100) * time.Millisecond)
+		time.Sleep(time.Duration(PollingTime) * time.Millisecond)
 	}
 }
 

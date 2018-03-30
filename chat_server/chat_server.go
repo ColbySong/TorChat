@@ -47,16 +47,17 @@ func (c *CServer) PublishMessage(msg string, ack *bool) error {
 	messages.all = append(messages.all, msg)
 	fmt.Println(msg)
 
+	*ack = true
 	return nil
 }
 
-func (c *CServer) GetNewMessages(last uint32, ack *[]string) error {
+func (c *CServer) GetNewMessages(last uint32, resp *[]string) error {
 	messages.RLock()
 	defer messages.RUnlock()
 
 	temp := make([]string, len(messages.all))
 	copy(temp, messages.all)
-	*ack = temp[last:]
+	*resp = temp[last:]
 
 	return nil
 }

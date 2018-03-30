@@ -54,25 +54,9 @@ func main() {
 	orAddr := flag.Arg(1)
 
 	// Generate RSA PublicKey and PrivateKey
-	priv, err := rsa.GenerateKey(rand.Reader, 2048) //2048
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	util.HandleFatalError("Could not generate RSA key", err)
 	pub := &priv.PublicKey
-
-	/* Sample code to encrypt/decrypt message
-
-	message := []byte("Plain text message!")
-	label := []byte("")
-	hash := sha256.New()
-
-	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, pub, message, label)
-	util.HandleFatalError("Could not encrypt message", err)
-	util.OutLog.Printf("OAEP encrypted [%s] to \n[%x]\n", string(message), ciphertext)
-
-	plainText, err := rsa.DecryptOAEP(hash, rand.Reader, priv, ciphertext, label)
-	util.HandleFatalError("Could not decrypt message", err)
-	util.OutLog.Printf("OAEP decrypted [%x] to \n[%s]\n", ciphertext, plainText)
-
-	*/
 
 	// Establish RPC channel to server
 	dirServer, err := rpc.Dial("tcp", dirServerAddr)
@@ -168,15 +152,17 @@ type ORServer struct {
 func (or OnionRouter) DeliverChatMessage(chatMessageByteArray []byte) error {
 	// TODO: send username/msg to IRC server
 	var chatMessage shared.ChatMessage
-	json.Unmarshal(chatMessageByteArray, &chatMessage)
+	err := json.Unmarshal(chatMessageByteArray, &chatMessage)
+	util.HandleFatalError("Could not unmarshal chat message", err)
 
 	ircServer, err := rpc.Dial("tcp", chatMessage.IRCServerAddr)
+	util.HandleFatalError("Could not dial IRC server", err)
+
 	var ack bool
-	err = ircServer.Call("CServer.PublishMessage",
-		chatMessage.Username+": "+chatMessage.Message, &ack)
+	err = ircServer.Call("CServer.PublishMessage", chatMessage.Username+": "+chatMessage.Message, &ack)
 	ircServer.Close()
-	// TODO: send struct to IRC for msg
-	util.HandleFatalError("Could not dial IRC", err)
+	util.HandleFatalError("Could not send message to IRC server", err)
+
 	return nil
 }
 
@@ -203,28 +189,28 @@ func DialOR(ORAddr string) *rpc.Client {
 func (s *ORServer) DecryptChatMessageCell(cell shared.Cell, ack *bool) error {
 	key := sharedKeysByCircuitId[cell.CircuitId]
 	cipherkey, err := aes.NewCipher(key)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error from cipher creation: %s\n", err)
-	}
+	util.HandleFatalError("Could not create cipher key", err)
 
-	iv := cell.Data[:aes.BlockSize]
+	prefix := cell.Data[:aes.BlockSize]
 	jsonData := cell.Data[aes.BlockSize:]
-	cfb := cipher.NewCFBDecrypter(cipherkey, iv)
+	cfb := cipher.NewCFBDecrypter(cipherkey, prefix)
 	cfb.XORKeyStream(jsonData, jsonData)
 
 	var currOnion shared.Onion
-	json.Unmarshal(jsonData, &currOnion)
+	err = json.Unmarshal(jsonData, &currOnion)
+	util.HandleFatalError("Could not unmarshal onion", err)
 	nextOnion := currOnion.Data
 
 	if currOnion.IsExitNode {
-		s.OnionRouter.DeliverChatMessage(currOnion.Data)
-		fmt.Printf("Deliver chat message to IRC server")
+		err = s.OnionRouter.DeliverChatMessage(currOnion.Data)
+		util.HandleFatalError("Could not deliver chat message", err)
+		util.OutLog.Println("Deliver chat message to IRC server")
 	} else {
-		s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion, cell.CircuitId)
-		fmt.Printf("Send chat message onion to next addr: %s \n", currOnion.NextAddress)
+		err = s.OnionRouter.RelayChatMessageOnion(currOnion.NextAddress, nextOnion, cell.CircuitId)
+		util.HandleFatalError("Could not relay chat message", err)
+		util.OutLog.Printf("Relay chat message onion to next addr: %s\n", currOnion.NextAddress)
 	}
 
-	//TODO: handle err
 	*ack = true
 	return nil
 }
@@ -232,45 +218,44 @@ func (s *ORServer) DecryptChatMessageCell(cell shared.Cell, ack *bool) error {
 func (s *ORServer) DecryptPollingCell(cell shared.Cell, ack *[]string) error {
 	key := sharedKeysByCircuitId[cell.CircuitId]
 	cipherkey, err := aes.NewCipher(key)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error from cipher creation: %s\n", err)
-	}
+	util.HandleFatalError("Could not create cipher key", err)
 
-	iv := cell.Data[:aes.BlockSize]
+	prefix := cell.Data[:aes.BlockSize]
 	jsonData := cell.Data[aes.BlockSize:]
-	cfb := cipher.NewCFBDecrypter(cipherkey, iv)
+	cfb := cipher.NewCFBDecrypter(cipherkey, prefix)
 	cfb.XORKeyStream(jsonData, jsonData)
 
 	var currOnion shared.Onion
-	json.Unmarshal(jsonData, &currOnion)
+	err = json.Unmarshal(jsonData, &currOnion)
+	util.HandleFatalError("Could not unmarshal onion", err)
 	nextOnion := currOnion.Data
 
 	var messages []string
 	if currOnion.IsExitNode {
-		messages, _ = s.OnionRouter.DeliverPollingMessage(currOnion.Data)
+		messages, err = s.OnionRouter.DeliverPollingMessage(currOnion.Data)
+		util.HandleFatalError("Could not deliver polling message", err)
 		// fmt.Printf("Deliver polling message to IRC server")
 	} else {
-		messages, _ = s.OnionRouter.RelayPollingOnion(currOnion.NextAddress, nextOnion, cell.CircuitId)
+		messages, err = s.OnionRouter.RelayPollingOnion(currOnion.NextAddress, nextOnion, cell.CircuitId)
+		util.HandleFatalError("Could not relay polling message", err)
 		// fmt.Printf("Send polling message onion to next addr: %s \n", currOnion.NextAddress)
 	}
 
-	//TODO: handle err
 	*ack = messages
 	return nil
 }
 
 func (or OnionRouter) DeliverPollingMessage(pollingMessageByteArray []byte) ([]string, error) {
-	// TODO: send username/msg to IRC server
 	var pollingMessage shared.PollingMessage
 	json.Unmarshal(pollingMessageByteArray, &pollingMessage)
 
 	ircServer, err := rpc.Dial("tcp", pollingMessage.IRCServerAddr)
-	var ack []string
-	err = ircServer.Call("CServer.GetNewMessages", pollingMessage.LastMessageId, &ack)
+	var messages []string
+	err = ircServer.Call("CServer.GetNewMessages", pollingMessage.LastMessageId, &messages)
 	ircServer.Close()
-	// TODO: send struct to IRC for msg
 	util.HandleFatalError("Could not dial IRC", err)
-	return ack, nil
+
+	return messages, nil
 }
 
 func (or OnionRouter) RelayPollingOnion(nextORAddress string, nextOnion []byte, circuitId uint32) ([]string, error) {
@@ -281,10 +266,12 @@ func (or OnionRouter) RelayPollingOnion(nextORAddress string, nextOnion []byte, 
 	}
 
 	nextORServer := DialOR(nextORAddress)
-	var ack []string
-	err := nextORServer.Call("ORServer.DecryptPollingCell", cell, &ack)
+	var resp []string
+	err := nextORServer.Call("ORServer.DecryptPollingCell", cell, &resp)
 	nextORServer.Close()
-	return ack, err
+	util.HandleFatalError("Could not decrypt polling cell", err)
+
+	return resp, err
 }
 
 func (s *ORServer) SendCircuitInfo(circuitInfo shared.CircuitInfo, ack *bool) error {

@@ -161,7 +161,7 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 	var ORSet shared.OnionRouterInfos //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
-	fmt.Printf("New circuit recieved from directory server: ")
+	util.OutLog.Println("New circuit recieved from directory server")
 
 	// Verify that the circuit came from a trusted directory server
 	if util.PubKeyToString(*ORSet.PubKey) != directoryServerPubKey || !ecdsa.Verify(ORSet.PubKey, ORSet.Hash, ORSet.SigR, ORSet.SigS) {
@@ -189,10 +189,8 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 			sharedKey: &sharedKey,
 		}
 
-		fmt.Printf(" hopnum %v : %s", hopNum, onionRouterInfo.Address)
+		util.OutLog.Printf(" hopnum %v : %s", hopNum, onionRouterInfo.Address)
 	}
-
-	fmt.Printf("\n")
 
 	return nil
 }
@@ -203,36 +201,39 @@ func (op *OnionProxy) DialOR(ORAddr string) *rpc.Client {
 	return orServer
 }
 
-func (s *OPServer) GetNewMessages(_ignored bool, ack *[]string) error {
+func (s *OPServer) GetNewMessages(_ignored bool, resp *[]string) error {
 	pollingMessage := shared.PollingMessage{
 		IRCServerAddr: s.OnionProxy.ircServerAddr,
 		LastMessageId: s.OnionProxy.lastMessageId,
 	}
-	jsonData, _ := json.Marshal(&pollingMessage)
+	jsonData, err := json.Marshal(&pollingMessage)
+	util.HandleFatalError("Could not marshal polling message", err)
 
 	onion := s.OnionProxy.OnionizeData(jsonData)
 
-	messages, _ := s.OnionProxy.SendPollingOnion(onion, s.OnionProxy.circuitId)
+	messages, err := s.OnionProxy.SendPollingOnion(onion, s.OnionProxy.circuitId)
+	util.HandleFatalError("Could not marshal polling message", err)
+
 	s.OnionProxy.lastMessageId = s.OnionProxy.lastMessageId + uint32(len(messages))
-	*ack = messages
+	*resp = messages
 
 	return nil
 }
 
 func (op *OnionProxy) SendPollingOnion(onionToSend []byte, circId uint32) ([]string, error) {
 	// Send onion to the guardNode via RPC
-	cell := shared.Cell{ // Can add more in cell if each layer needs more info other (such as hopId)
+	cell := shared.Cell{
 		CircuitId: circId,
 		Data:      onionToSend,
 	}
-	// fmt.Printf("Sending onion to guard node \n")
-	var ack []string
+
+	var messages []string
 	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].address)
-	err := guardNodeRPCClient.Call("ORServer.DecryptPollingCell", cell, &ack)
-	guardNodeRPCClient.Close()
+	err := guardNodeRPCClient.Call("ORServer.DecryptPollingCell", cell, &messages)
 	util.HandleFatalError("Could not send onion to guard node", err)
-	//TODO: handle error
-	return ack, err
+	guardNodeRPCClient.Close()
+
+	return messages, nil
 }
 
 func (s *OPServer) SendMessage(message string, ack *bool) error {
@@ -242,17 +243,19 @@ func (s *OPServer) SendMessage(message string, ack *bool) error {
 		Message:       message,
 	}
 	fmt.Printf("Recieved Message from Client for sending: %s \n", message)
-	jsonData, _ := json.Marshal(&chatMessage)
+	jsonData, err := json.Marshal(&chatMessage)
+	util.HandleFatalError("Could not marshal chat message", err)
 
 	onion := s.OnionProxy.OnionizeData(jsonData)
 
-	err := s.OnionProxy.SendChatMessageOnion(onion, s.OnionProxy.circuitId)
-	*ack = true //TODO: change RPC response to chat history? error?
-	return err
+	err = s.OnionProxy.SendChatMessageOnion(onion, s.OnionProxy.circuitId)
+	util.HandleFatalError("Could not send onion to guard node", err)
+
+	*ack = true
+	return nil
 }
 
 func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
-	// fmt.Printf("Start onionizing data \n")
 	encryptedLayer := coreData
 
 	for hopNum := len(op.ORInfoByHopNum) - 1; hopNum >= 0; hopNum-- {
@@ -269,26 +272,21 @@ func (op *OnionProxy) OnionizeData(coreData []byte) []byte {
 		}
 
 		// json marshal the onion layer
-		jsonData, _ := json.Marshal(&unencryptedLayer)
+		jsonData, err := json.Marshal(&unencryptedLayer)
+		util.HandleFatalError("Could not marshal unencrypted layer", err)
 
 		// Encrypt the onion layer
 		key := *op.ORInfoByHopNum[hopNum].sharedKey
 		cipherkey, err := aes.NewCipher(key)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error from creating cipher: %s\n", err)
-		}
-		ciphertext := make([]byte, aes.BlockSize+len(jsonData))
-		iv := ciphertext[:aes.BlockSize]
-		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-			fmt.Fprintf(os.Stderr, "Error in reading iv: %s\n", err)
-		}
-		cfb := cipher.NewCFBEncrypter(cipherkey, iv)
-		cfb.XORKeyStream(ciphertext[aes.BlockSize:], jsonData)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error from encryption: %s\n", err)
-		}
+		util.HandleFatalError("Error creating cipher", err)
 
-		// fmt.Printf("Done onionizing data \n")
+		ciphertext := make([]byte, aes.BlockSize+len(jsonData))
+		prefix := ciphertext[:aes.BlockSize]
+		_, err = io.ReadFull(rand.Reader, prefix)
+		util.HandleFatalError("Error reading aes prefix", err)
+
+		cfb := cipher.NewCFBEncrypter(cipherkey, prefix)
+		cfb.XORKeyStream(ciphertext[aes.BlockSize:], jsonData)
 
 		encryptedLayer = ciphertext
 	}
@@ -302,12 +300,14 @@ func (op *OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) er
 		CircuitId: circId,
 		Data:      onionToSend,
 	}
-	fmt.Printf("Sending onion to guard node \n")
+
+	util.OutLog.Println("Sending onion to guard node")
+
 	var ack bool
 	guardNodeRPCClient := op.DialOR(op.ORInfoByHopNum[0].address)
 	err := guardNodeRPCClient.Call("ORServer.DecryptChatMessageCell", cell, &ack)
 	guardNodeRPCClient.Close()
 	util.HandleFatalError("Could not send onion to guard node", err)
-	//TODO: handle error
-	return err
+
+	return nil
 }
