@@ -39,7 +39,6 @@ func main() {
 	}
 }
 
-// TODO: send ack message back to client, for now just print the message received
 func (c *CServer) PublishMessage(msg string, ack *bool) error {
 	messages.Lock()
 	defer messages.Unlock()
