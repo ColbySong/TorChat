@@ -70,6 +70,7 @@ func (client *ChatClient) connectToProxy() {
 	util.HandleFatalError("Could not connect to proxy", err)
 
 	fmt.Println("Client to Proxy connection established")
+	fmt.Println("WELCOME TO TORCHAT!")
 }
 
 func (client *ChatClient) getMessageInput() {

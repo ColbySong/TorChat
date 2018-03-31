@@ -12,20 +12,24 @@ import (
 var label = []byte("")
 var hash = sha256.New()
 
-func RSAEncrypt(pub *rsa.PublicKey, plainText []byte) []byte {
+func RSAEncrypt(pub *rsa.PublicKey, plainText []byte) ([]byte, error) {
 	cipherText, err := rsa.EncryptOAEP(hash, rand.Reader, pub, plainText, label)
-	HandleFatalError("Could not encrypt message", err)
-	OutLog.Printf("OAEP encrypted [%s] to \n[%x]\n", string(plainText), cipherText)
+	if err != nil {
+		HandleNonFatalError("Could not encrypt message", err)
+		return nil, err
+	}
 
-	return cipherText
+	return cipherText, nil
 }
 
-func RSADecrypt(priv *rsa.PrivateKey, cipherText []byte) []byte {
+func RSADecrypt(priv *rsa.PrivateKey, cipherText []byte) ([]byte, error) {
 	plainText, err := rsa.DecryptOAEP(hash, rand.Reader, priv, cipherText, label)
-	HandleFatalError("Could not decrypt message", err)
-	OutLog.Printf("OAEP decrypted [%x] to \n[%s]\n", cipherText, plainText)
+	if err != nil {
+		HandleNonFatalError("Could not decrypt message", err)
+		return nil, err
+	}
 
-	return plainText
+	return plainText, nil
 }
 
 func GenerateAESKey() []byte {

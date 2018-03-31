@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"encoding/binary"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -86,8 +87,8 @@ func main() {
 	inbound, err := net.ListenTCP("tcp", addr)
 	util.HandleFatalError("Could not listen", err)
 
-	fmt.Println("OP Address: ", opAddr)
-	fmt.Println("Full Address: ", inbound.Addr().String())
+	util.OutLog.Println("OP Address: ", opAddr)
+	util.OutLog.Println("Full Address: ", inbound.Addr().String())
 
 	ORInfoByHopNum := make(map[int]*orInfo)
 	// Create OnionProxy instance
@@ -122,7 +123,7 @@ func (s *OPServer) Connect(username string, ack *bool) error {
 	// Register username to OP
 	s.OnionProxy.username = username
 
-	fmt.Printf("Client username: %s \n", username)
+	util.OutLog.Printf("Client username: %s \n", username)
 
 	// First, wait to establish first new circuit
 	if err := s.OnionProxy.GetNewCircuit(); err != nil {
@@ -155,6 +156,7 @@ func (op *OnionProxy) GetNewCircuitEveryTwoMinutes() error {
 }
 
 func (op *OnionProxy) GetCircuitFromDServer() error {
+	util.OutLog.Println("Generating new circuit...")
 	var n uint32
 	binary.Read(rand.Reader, binary.LittleEndian, &n)
 	op.circuitId = n
@@ -162,7 +164,6 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 	var ORSet shared.OnionRouterInfos //ORSet can be a struct containing the OR address and pubkey
 	err := op.dirServer.Call("DServer.GetNodes", "", &ORSet)
 	util.HandleFatalError("Could not get circuit from directory server", err)
-	util.OutLog.Println("New circuit recieved from directory server")
 
 	// Verify that the circuit came from a trusted directory server
 	if util.PubKeyToString(*ORSet.PubKey) != directoryServerPubKey || !ecdsa.Verify(ORSet.PubKey, ORSet.Hash, ORSet.SigR, ORSet.SigS) {
@@ -171,7 +172,11 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 
 	for hopNum, onionRouterInfo := range ORSet.ORInfos {
 		sharedKey := util.GenerateAESKey()
-		encryptedSharedKey := util.RSAEncrypt(onionRouterInfo.PubKey, sharedKey)
+		encryptedSharedKey, err := util.RSAEncrypt(onionRouterInfo.PubKey, sharedKey)
+		if err != nil {
+			util.HandleNonFatalError("Could not encrypt shared key", err)
+			return err
+		}
 
 		circuitInfo := shared.CircuitInfo{
 			CircuitId:          op.circuitId,
@@ -189,7 +194,6 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 			return err
 		}
 		client.Close()
-		util.OutLog.Printf("CircuitId %v, Shared Key: %s\n", circuitInfo.CircuitId, sharedKey)
 
 		op.ORInfoByHopNum[hopNum] = &orInfo{
 			address:   onionRouterInfo.Address,
@@ -197,8 +201,10 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 			sharedKey: &sharedKey,
 		}
 
-		util.OutLog.Printf(" hopnum %v : %s", hopNum, onionRouterInfo.Address)
+		util.OutLog.Printf("\nCircuitId %v:\n    Hop Number: %v\n    OR Address: %s\n    Shared Key: %s\n", circuitInfo.CircuitId, hopNum+1, onionRouterInfo.Address, hex.EncodeToString(sharedKey))
 	}
+
+	util.OutLog.Println("Circuit generation completed")
 
 	return nil
 }
@@ -271,7 +277,7 @@ func (s *OPServer) SendMessage(message string, ack *bool) error {
 		Message:       message,
 	}
 
-	fmt.Printf("Recieved Message from Client for sending: %s \n", message)
+	util.OutLog.Printf("Recieved Message from Client for sending: %s \n", message)
 
 	jsonData, err := json.Marshal(&chatMessage)
 	if err != nil {
@@ -289,6 +295,8 @@ func (s *OPServer) SendMessage(message string, ack *bool) error {
 		util.HandleNonFatalError("Could not send message", err)
 		return err
 	}
+
+	util.OutLog.Println("Message successfully sent!")
 
 	*ack = true
 	return nil
@@ -354,7 +362,7 @@ func (op *OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) er
 	}
 
 	if err := guardNodeRPCClient.Call("ORServer.DecryptChatMessageCell", cell, &_ignored); err != nil {
-		util.HandleNonFatalError("Could not send onion to guard node", err)
+		util.HandleNonFatalError("Could not send onion through onion network", err)
 		return err
 	}
 	guardNodeRPCClient.Close()
