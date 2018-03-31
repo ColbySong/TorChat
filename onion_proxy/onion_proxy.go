@@ -32,14 +32,15 @@ type OPServer struct {
 }
 
 type OnionProxy struct {
-	addr           string
-	username       string
-	circuitId      uint32
-	ircServerAddr  string
-	ircServer      *rpc.Client
-	ORInfoByHopNum map[int]*orInfo
-	dirServer      *rpc.Client
-	lastMessageId  uint32
+	addr            string
+	username        string
+	circuitId       uint32
+	ircServerAddr   string
+	ircServer       *rpc.Client
+	ORInfoByHopNum  map[int]*orInfo
+	dirServer       *rpc.Client
+	lastMessageId   uint32
+	guardNodeServer *rpc.Client
 }
 
 type orInfo struct {
@@ -187,13 +188,20 @@ func (op *OnionProxy) GetCircuitFromDServer() error {
 		if err != nil {
 			return err
 		}
+		// Only save guard node server
+		if hopNum == 0 {
+			op.guardNodeServer = client
+		}
 
 		var ack bool
 		if err := client.Call("ORServer.SendCircuitInfo", circuitInfo, &ack); err != nil {
 			util.HandleNonFatalError("Could not send circuit info to ORs", err)
 			return err
 		}
-		client.Close()
+		// If not guard node, close client
+		if hopNum != 0 {
+			client.Close()
+		}
 
 		op.ORInfoByHopNum[hopNum] = &orInfo{
 			address:   onionRouterInfo.Address,
@@ -255,17 +263,11 @@ func (op *OnionProxy) SendPollingOnion(onionToSend []byte, circId uint32) ([]str
 	}
 
 	var messages []string
-	guardNodeRPCClient, err := op.DialOR(op.ORInfoByHopNum[0].address)
-	if err != nil {
-		return nil, err
-	}
-
-	err = guardNodeRPCClient.Call("ORServer.DecryptPollingCell", cell, &messages)
+	err := op.guardNodeServer.Call("ORServer.DecryptPollingCell", cell, &messages)
 	if err != nil {
 		util.HandleNonFatalError("Could not send onion to guard node", err)
 		return nil, err
 	}
-	guardNodeRPCClient.Close()
 
 	return messages, nil
 }
@@ -356,16 +358,10 @@ func (op *OnionProxy) SendChatMessageOnion(onionToSend []byte, circId uint32) er
 	util.OutLog.Println("Sending onion to guard node")
 
 	var _ignored bool
-	guardNodeRPCClient, err := op.DialOR(op.ORInfoByHopNum[0].address)
-	if err != nil {
-		return err
-	}
-
-	if err := guardNodeRPCClient.Call("ORServer.DecryptChatMessageCell", cell, &_ignored); err != nil {
+	if err := op.guardNodeServer.Call("ORServer.DecryptChatMessageCell", cell, &_ignored); err != nil {
 		util.HandleNonFatalError("Could not send onion through onion network", err)
 		return err
 	}
-	guardNodeRPCClient.Close()
 
 	return nil
 }
