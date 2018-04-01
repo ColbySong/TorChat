@@ -43,6 +43,7 @@ func main() {
 
 func (client *ChatClient) connectToProxy() {
 	// Prompt for and verify proxy port number
+	// TODO - could just hardcode this seeing as we're hardcoding everything else
 	fmt.Print("Proxy port: ")
 	proxyPort := readInputLine(client.Reader)
 	proxyPort = strings.TrimSpace(proxyPort)
