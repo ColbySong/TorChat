@@ -1,8 +1,8 @@
 package shared
 
 import (
-	"crypto/rsa"
 	"crypto/ecdsa"
+	"crypto/rsa"
 	"math/big"
 )
 
@@ -23,12 +23,17 @@ type ChatMessage struct {
 	Message       string
 }
 
+type PollingMessage struct {
+	IRCServerAddr string
+	LastMessageId uint32
+}
+
 type OnionRouterInfos struct {
-	PubKey *ecdsa.PublicKey
-	Hash  []byte
-	SigS       *big.Int // signed with private key of directory server
-	SigR	     *big.Int // edsca.Sign returns R, S which is both needed to verify
-	ORInfos  []OnionRouterInfo
+	PubKey  *ecdsa.PublicKey
+	Hash    []byte
+	SigS    *big.Int // signed with private key of directory server
+	SigR    *big.Int // edsca.Sign returns R, S which is both needed to verify
+	ORInfos []OnionRouterInfo
 }
 
 type OnionRouterInfo struct {

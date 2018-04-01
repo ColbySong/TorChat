@@ -9,11 +9,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"../util"
 )
 
 const LocalHostAddress = "127.0.0.1"
+const PollingTime = 100
 
 type ChatClient struct {
 	Name   string
@@ -35,6 +37,7 @@ func main() {
 
 	client.connectToProxy()
 
+	go client.pollForNewMessages()
 	client.getMessageInput()
 }
 
@@ -50,31 +53,52 @@ func (client *ChatClient) connectToProxy() {
 
 	// Establish bi-directional RPC connection with proxy
 	laddr, err := net.ResolveTCPAddr("tcp", ":0")
-	util.HandleFatalError("Cannot resolve address", err)
+	util.HandleFatalError("Could not resolve address", err)
 
 	proxyListener, err := net.ListenTCP("tcp", laddr)
-	util.HandleFatalError("Cannot start listening for TCP", err)
+	util.HandleFatalError("Could not start listening for TCP", err)
 
 	go client.startClientListen(proxyListener)
 
 	proxyAddr := LocalHostAddress + ":" + proxyPort
 	proxy, err := rpc.Dial("tcp", proxyAddr)
-	util.HandleFatalError("Cannot connect to proxy", err)
+	util.HandleFatalError("Could not dial proxy", err)
 	client.Proxy = proxy
 
-	var resp bool // todo - should be error return type
-	err = client.Proxy.Call("OPServer.Connect", client.Name, &resp)
-	util.HandleFatalError("Cannot connect to proxy", err)
+	var _ignored bool
+	err = client.Proxy.Call("OPServer.Connect", client.Name, &_ignored)
+	util.HandleFatalError("Could not connect to proxy", err)
 
 	fmt.Println("Client to Proxy connection established")
+	fmt.Println("WELCOME TO TORCHAT!")
 }
 
 func (client *ChatClient) getMessageInput() {
 	for {
 		msg := readInputLine(client.Reader)
 
-		var resp bool // todo - should be error return type
-		client.Proxy.Call("OPServer.SendMessage", msg, &resp)
+		var _ignored bool
+		if err := client.Proxy.Call("OPServer.SendMessage", msg, &_ignored); err != nil {
+			util.HandleNonFatalError("Could not send message, please try again!", err)
+		}
+	}
+}
+
+func (client *ChatClient) pollForNewMessages() {
+	for {
+		var newMessages []string
+		if err := client.Proxy.Call("OPServer.GetNewMessages", true, &newMessages); err != nil {
+			util.HandleFatalError("Could not retrieve new messages, please reconnect!", err)
+		} else {
+			displayMessages(newMessages)
+		}
+		time.Sleep(time.Duration(PollingTime) * time.Millisecond)
+	}
+}
+
+func displayMessages(messages []string) {
+	for _, message := range messages {
+		fmt.Println(message)
 	}
 }
 
